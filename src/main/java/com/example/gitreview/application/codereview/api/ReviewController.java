@@ -49,7 +49,8 @@ public class ReviewController {
     public ResponseEntity<String> reviewWithClaude(
             @PathVariable Long repositoryId,
             @RequestParam String baseBranch,
-            @RequestParam String targetBranch) {
+            @RequestParam String targetBranch,
+            @RequestParam(defaultValue = "standard") String mode) {
         logger.info("Starting Claude review for repository {} from {} to {}", repositoryId, baseBranch, targetBranch);
 
         try {
@@ -91,12 +92,12 @@ public class ReviewController {
             }
 
             // 调用Claude进行审查
-            logger.info("Calling Claude for code review...");
+            logger.info("Calling Claude for code review with mode: {}", mode);
             ClaudeQueryResponse response = claudeQueryPort.reviewCodeChanges(
                     diffContent.toString(),
                     "Git代码审查项目 - " + repository.getName(),
                     "代码审查: " + baseBranch + " -> " + targetBranch,
-                    "comprehensive"
+                    mode
             );
 
             if (response.isSuccessful()) {
@@ -137,5 +138,85 @@ public class ReviewController {
             error.put("error", e.getMessage());
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(error);
         }
+    }
+
+    /**
+     * 获取代码审查进度（用于前端轮询）
+     */
+    @GetMapping("/api/review/{reviewId}/progress")
+    public ResponseEntity<Map<String, Object>> getReviewProgress(@PathVariable Long reviewId) {
+        logger.debug("Getting review progress for {}", reviewId);
+
+        try {
+            var statusInfo = codeReviewApplicationService.getReviewStatus(reviewId);
+
+            Map<String, Object> response = new HashMap<>();
+            response.put("reviewId", reviewId);
+            response.put("status", statusInfo.getStatus().name());
+            response.put("progress", statusInfo.getProgress());
+            response.put("currentStep", getCurrentStepDescription(statusInfo.getProgress(), statusInfo.getStatus().name()));
+            response.put("estimatedRemainingSeconds", estimateRemainingTime(statusInfo.getProgress(), statusInfo.getStatus().name()));
+
+            return ResponseEntity.ok(response);
+
+        } catch (Exception e) {
+            logger.error("Failed to get review progress for {}", reviewId, e);
+            Map<String, Object> error = new HashMap<>();
+            error.put("error", e.getMessage());
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(error);
+        }
+    }
+
+    /**
+     * 根据进度返回当前步骤描述
+     */
+    private String getCurrentStepDescription(int progress, String status) {
+        if ("COMPLETED".equals(status)) {
+            return "审查完成";
+        }
+        if ("FAILED".equals(status)) {
+            return "审查失败";
+        }
+        if ("CANCELLED".equals(status)) {
+            return "审查已取消";
+        }
+
+        // 根据进度返回步骤描述
+        if (progress < 10) {
+            return "初始化审查任务";
+        } else if (progress < 30) {
+            return "检查Claude服务可用性";
+        } else if (progress < 50) {
+            return "提取代码上下文";
+        } else if (progress < 80) {
+            return "Claude正在分析代码";
+        } else if (progress < 90) {
+            return "解析审查结果";
+        } else if (progress < 100) {
+            return "保存审查结果";
+        } else {
+            return "审查完成";
+        }
+    }
+
+    /**
+     * 估算剩余时间（秒）
+     * 基于当前进度和平均审查时间估算
+     */
+    private int estimateRemainingTime(int progress, String status) {
+        if ("COMPLETED".equals(status) || "FAILED".equals(status) || "CANCELLED".equals(status)) {
+            return 0;
+        }
+
+        // 假设深度审查平均需要120秒
+        int totalEstimatedSeconds = 120;
+
+        if (progress >= 100) {
+            return 0;
+        }
+
+        // 基于剩余进度估算时间
+        int remainingProgress = 100 - progress;
+        return (totalEstimatedSeconds * remainingProgress) / 100;
     }
 }

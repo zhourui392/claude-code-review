@@ -19,6 +19,9 @@ public class CodeDiff {
     private final LocalDateTime generateTime;
     private final Long repositoryId;
 
+    // 工作空间ID（可变，用于上下文提取）
+    private String workspaceId;
+
     // 文件变更类型
     public enum ChangeType {
         ADDED,      // 新增
@@ -313,6 +316,14 @@ public class CodeDiff {
 
     public Long getRepositoryId() {
         return repositoryId;
+    }
+
+    public String getWorkspaceId() {
+        return workspaceId;
+    }
+
+    public void setWorkspaceId(String workspaceId) {
+        this.workspaceId = workspaceId;
     }
 
     @Override

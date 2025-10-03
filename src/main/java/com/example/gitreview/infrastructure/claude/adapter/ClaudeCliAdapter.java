@@ -5,6 +5,7 @@ import com.example.gitreview.infrastructure.claude.ClaudeQueryResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.io.ClassPathResource;
 import org.springframework.stereotype.Component;
 
 import jakarta.annotation.PostConstruct;
@@ -12,6 +13,7 @@ import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Properties;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -31,9 +33,13 @@ public class ClaudeCliAdapter implements ClaudeQueryPort {
     private long timeoutMs;
 
     private final AtomicBoolean available = new AtomicBoolean(false);
+    private final Properties reviewPrompts = new Properties();
 
     @PostConstruct
     public void init() {
+        // 加载审查提示词配置
+        loadReviewPrompts();
+
         try {
             logger.info("Checking Claude CLI availability...");
 
@@ -212,15 +218,38 @@ public class ClaudeCliAdapter implements ClaudeQueryPort {
 
         return output.toString();
     }
+
+    /**
+     * 加载审查提示词配置
+     */
+    private void loadReviewPrompts() {
+        try {
+            ClassPathResource resource = new ClassPathResource("review-prompts.properties");
+            try (InputStream is = resource.getInputStream()) {
+                reviewPrompts.load(new InputStreamReader(is, StandardCharsets.UTF_8));
+                logger.info("Loaded {} review prompt templates", reviewPrompts.size());
+            }
+        } catch (IOException e) {
+            logger.error("Failed to load review-prompts.properties", e);
+        }
+    }
+
     /**
      * 构建审查提示词
      */
     private String buildReviewPrompt(String diffContent, String projectContext,
                                      String commitMessage, String reviewMode) {
-        StringBuilder prompt = new StringBuilder();
+        // 从配置文件加载对应模式的 Prompt 模板
+        String promptKey = "review.prompt." + reviewMode.toLowerCase();
+        String promptTemplate = reviewPrompts.getProperty(promptKey);
 
-        // 添加角色说明
-        prompt.append("你是一位资深的代码审查专家。请对以下代码变更进行专业的审查分析。\n\n");
+        if (promptTemplate == null) {
+            logger.warn("No prompt template found for mode: {}, using standard", reviewMode);
+            promptTemplate = reviewPrompts.getProperty("review.prompt.standard",
+                    getDefaultPrompt());
+        }
+
+        StringBuilder prompt = new StringBuilder();
 
         // 添加项目上下文
         if (projectContext != null && !projectContext.isEmpty()) {
@@ -234,48 +263,26 @@ public class ClaudeCliAdapter implements ClaudeQueryPort {
             prompt.append(commitMessage).append("\n\n");
         }
 
-        // 添加审查模式说明
-        prompt.append("## 审查重点\n");
-        prompt.append(getReviewModeFocus(reviewMode)).append("\n\n");
+        // 添加审查提示词
+        prompt.append(promptTemplate).append("\n\n");
 
         // 添加代码变更内容
         prompt.append("## 代码变更\n");
         prompt.append("```diff\n");
         prompt.append(diffContent);
-        prompt.append("\n```\n\n");
-
-        // 添加审查要求
-        prompt.append("## 审查要求\n");
-        prompt.append("请提供结构化的审查报告，包含以下部分：\n");
-        prompt.append("1. **变更概述**: 简要说明本次变更的主要内容\n");
-        prompt.append("2. **优点分析**: 列出代码改进的亮点\n");
-        prompt.append("3. **问题发现**: 指出潜在的问题和风险\n");
-        prompt.append("4. **改进建议**: 提供具体的优化建议\n");
-        prompt.append("5. **整体评价**: 给出综合评价和建议\n");
+        prompt.append("\n```\n");
 
         return prompt.toString();
     }
 
     /**
-     * 获取审查模式的重点说明
+     * 获取默认提示词（当配置文件加载失败时使用）
      */
-    private String getReviewModeFocus(String mode) {
-        if (mode == null) mode = "standard";
-
-        switch (mode.toLowerCase()) {
-            case "quick":
-                return "快速审查模式 - 重点关注严重问题和明显错误";
-            case "security":
-                return "安全审查模式 - 重点关注安全漏洞、注入攻击、数据泄露等安全问题";
-            case "architecture":
-                return "架构审查模式 - 重点关注设计模式、代码结构、模块划分、可维护性";
-            case "performance":
-                return "性能审查模式 - 重点关注性能瓶颈、资源消耗、算法复杂度、并发问题";
-            case "comprehensive":
-                return "全面审查模式 - 深入检查所有方面，包括功能、安全、性能、可维护性、测试覆盖";
-            case "standard":
-            default:
-                return "标准审查模式 - 平衡关注代码质量、功能正确性、最佳实践";
-        }
+    private String getDefaultPrompt() {
+        return "请审查此代码变更，重点关注：\n" +
+               "- Bug 和潜在的逻辑错误\n" +
+               "- 安全漏洞\n" +
+               "- 性能瓶颈\n" +
+               "- 代码质量问题";
     }
 }

@@ -27,6 +27,8 @@ public class CodeReview {
     private LocalDateTime createTime;
     private LocalDateTime updateTime;
     private String createdBy;
+    private String workspaceId;
+    private int progress = 0; // 审查进度 0-100
 
     // 聚合内的实体和值对象
     private final List<ReviewSession> sessions = new ArrayList<>();
@@ -59,6 +61,15 @@ public class CodeReview {
     }
 
     // 业务方法
+
+    /**
+     * 设置工作空间ID
+     * @param workspaceId 工作空间ID
+     */
+    public void setWorkspaceId(String workspaceId) {
+        this.workspaceId = workspaceId;
+        this.updateTime = LocalDateTime.now();
+    }
 
     /**
      * 开始代码审查
@@ -205,6 +216,12 @@ public class CodeReview {
      * @return 进度百分比 (0-100)
      */
     public int getProgress() {
+        // 如果有显式设置的进度，优先使用
+        if (progress > 0 && status == ReviewStatus.IN_PROGRESS) {
+            return progress;
+        }
+
+        // 否则基于会话计算进度
         if (sessions.isEmpty()) {
             return status == ReviewStatus.COMPLETED ? 100 : 0;
         }
@@ -214,6 +231,23 @@ public class CodeReview {
                 .sum();
 
         return (int) ((completedSessions * 100) / sessions.size());
+    }
+
+    /**
+     * 更新审查进度
+     * @param progress 进度百分比 (0-100)
+     */
+    public void updateProgress(int progress) {
+        if (progress < 0 || progress > 100) {
+            throw new ValidationException("Progress must be between 0 and 100");
+        }
+
+        if (status != ReviewStatus.IN_PROGRESS) {
+            throw new BusinessRuleException("Cannot update progress when status is " + status);
+        }
+
+        this.progress = progress;
+        this.updateTime = LocalDateTime.now();
     }
 
     /**
@@ -337,6 +371,10 @@ public class CodeReview {
 
     public String getCreatedBy() {
         return createdBy;
+    }
+
+    public String getWorkspaceId() {
+        return workspaceId;
     }
 
     public List<ReviewSession> getSessions() {

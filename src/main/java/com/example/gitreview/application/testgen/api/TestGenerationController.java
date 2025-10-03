@@ -79,9 +79,10 @@ public class TestGenerationController {
             Long repositoryId = Long.valueOf(request.get("repositoryId").toString());
             String branch = request.get("branch").toString();
             String classNames = request.get("className").toString();
-            String testType = request.getOrDefault("testType", "basic").toString();
-            Integer qualityLevel = Integer.valueOf(request.getOrDefault("qualityLevel", 3).toString());
+            String testType = request.getOrDefault("testType", "mock").toString();
+            Integer qualityLevel = Integer.valueOf(request.getOrDefault("qualityLevel", 5).toString());
             String gateId = request.containsKey("gateId") ? request.get("gateId").toString() : null;
+            String requirement = request.containsKey("requirement") ? request.get("requirement").toString() : null;
 
             // 解析多个类名（逗号分隔）
             String[] classNameArray = classNames.split(",");
@@ -126,7 +127,7 @@ public class TestGenerationController {
 
             // 异步执行生成任务（批量处理）
             CompletableFuture.runAsync(() -> executeBatchTestGeneration(
-                taskId, repositoryId, branch, classNameList, testType, qualityLevel, gateId));
+                taskId, repositoryId, branch, classNameList, testType, qualityLevel, gateId, requirement));
 
             Map<String, Object> response = new HashMap<>();
             response.put("success", true);
@@ -202,7 +203,8 @@ public class TestGenerationController {
      * 批量执行测试生成
      */
     private void executeBatchTestGeneration(Long taskId, Long repositoryId, String branch,
-                                           List<String> classNames, String testType, Integer qualityLevel, String gateId) {
+                                           List<String> classNames, String testType, Integer qualityLevel,
+                                           String gateId, String requirement) {
         long startTime = System.currentTimeMillis();
         StringBuilder allTestCode = new StringBuilder();
         StringBuilder allOutput = new StringBuilder();
@@ -244,12 +246,34 @@ public class TestGenerationController {
                     updateTaskStatus(taskId, "GENERATING", progress,
                         String.format("正在处理 %s (%d/%d)...", className, i + 1, totalClasses));
 
-                    // 生成单个类的测试
-                    String testCode = generateSingleClassTest(repoDir, className, testType, qualityLevel);
+                    // 1. 查找类文件路径
+                    String classFilePath = findJavaClassFile(repoDir, className);
+                    if (classFilePath == null) {
+                        throw new RuntimeException("Class not found: " + className);
+                    }
+                    logger.info("Found class at: {}", classFilePath);
+
+                    // 2. 生成单个类的测试
+                    String testCode = generateSingleClassTest(repoDir, className, testType, qualityLevel, requirement);
+
+                    // 3. 计算测试文件路径（从 src/main/java 转换为 src/test/java）
+                    String testFilePath = convertToTestPath(classFilePath, className);
+                    logger.info("Test file will be saved to: {}", testFilePath);
+
+                    // 4. 写入测试文件到文件系统
+                    File testFile = new File(repoDir, testFilePath);
+                    File testDir = testFile.getParentFile();
+                    if (!testDir.exists()) {
+                        boolean created = testDir.mkdirs();
+                        logger.info("Created test directory: {} (success: {})", testDir.getAbsolutePath(), created);
+                    }
+
+                    java.nio.file.Files.writeString(testFile.toPath(), testCode, java.nio.charset.StandardCharsets.UTF_8);
+                    logger.info("✓ Wrote test file: {}", testFile.getAbsolutePath());
 
                     allTestCode.append("// ").append(className).append("Test.java\n");
                     allTestCode.append(testCode).append("\n\n");
-                    allOutput.append("✓ ").append(className).append(" - 生成成功\n");
+                    allOutput.append("✓ ").append(className).append(" - 生成成功: ").append(testFilePath).append("\n");
                     successCount++;
 
                 } catch (Exception e) {
@@ -262,14 +286,55 @@ public class TestGenerationController {
             if (successCount > 0) {
                 updateTaskStatus(taskId, "COMMITTING", 95, "正在提交代码...");
 
-                String commitMessage = buildBatchCommitMessage(classNames, successCount, gateId);
-                ClaudeGitService.GitOperationResult gitResult =
-                        claudeGitService.commitAndPush(repoDir, commitMessage, true);
+                try {
+                    // 使用标准Git命令提交（不使用Claude CLI）
+                    ProcessBuilder gitAdd = new ProcessBuilder("git", "add", ".");
+                    gitAdd.directory(repoDir);
+                    gitAdd.redirectErrorStream(true);
+                    Process addProcess = gitAdd.start();
 
-                if (gitResult.isSuccess()) {
-                    allOutput.append("\n✓ Git提交成功\n").append(gitResult.getOutput());
-                } else {
-                    allOutput.append("\n✗ Git提交失败: ").append(gitResult.getMessage());
+                    StringBuilder gitOutput = new StringBuilder();
+                    try (java.io.BufferedReader reader = new java.io.BufferedReader(
+                            new java.io.InputStreamReader(addProcess.getInputStream()))) {
+                        String line;
+                        while ((line = reader.readLine()) != null) {
+                            gitOutput.append(line).append("\n");
+                        }
+                    }
+
+                    int addExitCode = addProcess.waitFor();
+                    logger.info("git add exit code: {}, output: {}", addExitCode, gitOutput);
+
+                    // Git commit
+                    String commitMessage = buildBatchCommitMessage(classNames, successCount, gateId);
+                    ProcessBuilder gitCommit = new ProcessBuilder("git", "commit", "-m", commitMessage);
+                    gitCommit.directory(repoDir);
+                    gitCommit.redirectErrorStream(true);
+                    Process commitProcess = gitCommit.start();
+
+                    gitOutput = new StringBuilder();
+                    try (java.io.BufferedReader reader = new java.io.BufferedReader(
+                            new java.io.InputStreamReader(commitProcess.getInputStream()))) {
+                        String line;
+                        while ((line = reader.readLine()) != null) {
+                            gitOutput.append(line).append("\n");
+                        }
+                    }
+
+                    int commitExitCode = commitProcess.waitFor();
+                    logger.info("git commit exit code: {}, output: {}", commitExitCode, gitOutput);
+
+                    if (addExitCode == 0 && commitExitCode == 0) {
+                        allOutput.append("\n✓ Git提交成功\n").append(gitOutput);
+                        logger.info("✓ Successfully committed {} test files", successCount);
+                    } else {
+                        allOutput.append("\n⚠ Git提交失败 (exit: " + commitExitCode + "): ").append(gitOutput);
+                        logger.warn("Git commit failed with exit code: {}", commitExitCode);
+                    }
+
+                } catch (Exception e) {
+                    logger.error("Failed to commit changes", e);
+                    allOutput.append("\n✗ Git提交失败: ").append(e.getMessage());
                 }
             }
 
@@ -306,19 +371,50 @@ public class TestGenerationController {
     /**
      * 生成单个类的测试代码
      */
-    private String generateSingleClassTest(File repoDir, String className, String testType, Integer qualityLevel)
+    private String generateSingleClassTest(File repoDir, String className, String testType,
+                                          Integer qualityLevel, String requirement)
             throws Exception {
         // 查找Java类文件
         String classPath = findJavaClassFile(repoDir, className);
         if (classPath == null) {
-            throw new RuntimeException("Java class not found: " + className);
+            // 首先尝试查找相似的类名
+            List<String> matchingClasses = findMatchingClasses(repoDir, className);
+            List<String> allClasses = listAvailableJavaClasses(repoDir);
+
+            StringBuilder errorMsg = new StringBuilder();
+            errorMsg.append("Java class not found: ").append(className);
+            errorMsg.append("\n\nTotal classes in repository: ").append(allClasses.size());
+
+            if (!matchingClasses.isEmpty()) {
+                errorMsg.append("\n\nSimilar classes found (maybe you meant one of these?):");
+                for (int i = 0; i < Math.min(10, matchingClasses.size()); i++) {
+                    errorMsg.append("\n  - ").append(matchingClasses.get(i));
+                }
+            } else if (!allClasses.isEmpty()) {
+                errorMsg.append("\n\nAvailable classes (first 10):");
+                for (int i = 0; i < Math.min(10, allClasses.size()); i++) {
+                    errorMsg.append("\n  - ").append(allClasses.get(i));
+                }
+                if (allClasses.size() > 10) {
+                    errorMsg.append("\n  ... and ").append(allClasses.size() - 10).append(" more");
+                }
+            }
+
+            errorMsg.append("\n\n💡 Tips:");
+            errorMsg.append("\n  1. Use full class name: com.example.service.impl.BadgeServiceImpl");
+            errorMsg.append("\n  2. Or simple name if unique: BadgeServiceImpl");
+            errorMsg.append("\n  3. Check spelling and case sensitivity");
+
+            throw new RuntimeException(errorMsg.toString());
         }
+
+        logger.info("Found class at: {}", classPath);
 
         // 读取类代码
         String classCode = Files.readString(Path.of(repoDir.getAbsolutePath(), classPath));
 
         // 生成测试代码
-        String prompt = buildTestGenerationPrompt(className, testType, qualityLevel, classCode);
+        String prompt = buildTestGenerationPrompt(className, testType, qualityLevel, classCode, requirement);
         ClaudeQueryResponse claudeResponse = claudeQueryPort.query(prompt);
 
         if (!claudeResponse.isSuccessful()) {
@@ -326,6 +422,151 @@ public class TestGenerationController {
         }
 
         return extractTestCodeFromResponse(claudeResponse.getOutput());
+    }
+
+    /**
+     * 列出仓库中所有可用的Java类
+     * GET /api/test-generation/classes?repositoryId=1&branch=master&search=badge
+     */
+    @GetMapping("/classes")
+    public ResponseEntity<Map<String, Object>> listClasses(
+            @RequestParam Long repositoryId,
+            @RequestParam(defaultValue = "master") String branch,
+            @RequestParam(required = false) String search) {
+
+        logger.info("Listing classes for repository {} on branch {}, search: {}", repositoryId, branch, search);
+
+        try {
+            // 获取仓库信息
+            GitRepositoryDTO repository = gitRepositoryApplicationService.getRepository(repositoryId);
+            if (repository == null) {
+                return ResponseEntity.status(HttpStatus.NOT_FOUND)
+                        .body(Map.of("error", "Repository not found: " + repositoryId));
+            }
+
+            // 克隆仓库
+            File repoDir = gitOperationPort.cloneRepository(
+                    repository.getUrl(),
+                    repository.getUsername(),
+                    repository.getEncryptedPassword(),
+                    branch
+            );
+
+            // 列出所有类
+            List<String> allClasses = listAvailableJavaClasses(repoDir);
+
+            // 如果有搜索关键词，进行过滤
+            List<String> filteredClasses = allClasses;
+            if (search != null && !search.trim().isEmpty()) {
+                String searchLower = search.toLowerCase();
+                filteredClasses = allClasses.stream()
+                        .filter(className -> className.toLowerCase().contains(searchLower))
+                        .collect(java.util.stream.Collectors.toList());
+            }
+
+            // 按包名分组
+            Map<String, List<String>> groupedClasses = new java.util.TreeMap<>();
+            for (String className : filteredClasses) {
+                String packageName = "default";
+                if (className.contains(".")) {
+                    int lastDot = className.lastIndexOf('.');
+                    packageName = className.substring(0, lastDot);
+                }
+                groupedClasses.computeIfAbsent(packageName, k -> new ArrayList<>()).add(className);
+            }
+
+            Map<String, Object> response = new HashMap<>();
+            response.put("repositoryId", repositoryId);
+            response.put("repositoryName", repository.getName());
+            response.put("branch", branch);
+            response.put("totalClasses", allClasses.size());
+            response.put("filteredClasses", filteredClasses.size());
+            response.put("search", search);
+            response.put("classes", filteredClasses);
+            response.put("groupedByPackage", groupedClasses);
+
+            return ResponseEntity.ok(response);
+
+        } catch (Exception e) {
+            logger.error("Failed to list classes", e);
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                    .body(Map.of("error", "Failed to list classes: " + e.getMessage()));
+        }
+    }
+
+    /**
+     * 列出仓库中所有可用的Java类
+     */
+    private List<String> listAvailableJavaClasses(File repoDir) {
+        List<String> classes = new ArrayList<>();
+        try {
+            listJavaClassesRecursively(repoDir, repoDir, classes);
+        } catch (Exception e) {
+            logger.warn("Failed to list available classes", e);
+        }
+        return classes;
+    }
+
+    /**
+     * 递归列出Java类
+     */
+    private void listJavaClassesRecursively(File rootDir, File currentDir, List<String> classes) {
+        File[] files = currentDir.listFiles();
+        if (files == null) return;
+
+        for (File file : files) {
+            if (file.isDirectory()) {
+                String dirName = file.getName();
+                if (dirName.equals(".git") || dirName.equals("target") ||
+                    dirName.equals("build") || dirName.equals("node_modules") ||
+                    dirName.equals(".idea") || dirName.equals("out") ||
+                    dirName.equals("bin") || dirName.startsWith(".")) {
+                    continue;
+                }
+                listJavaClassesRecursively(rootDir, file, classes);
+            } else if (file.isFile() && file.getName().endsWith(".java")) {
+                try {
+                    String fullPath = file.getCanonicalPath();
+                    String rootPath = rootDir.getCanonicalPath();
+                    String relativePath = fullPath.substring(rootPath.length() + 1).replace('\\', '/');
+
+                    // 提取类名（不带.java后缀）
+                    String className = file.getName().replace(".java", "");
+
+                    // 尝试提取包名
+                    if (relativePath.contains("src/main/java/")) {
+                        String packagePath = relativePath.substring(relativePath.indexOf("src/main/java/") + 14);
+                        String fullClassName = packagePath.replace('/', '.').replace(".java", "");
+                        classes.add(fullClassName);
+                    } else if (relativePath.contains("src/java/")) {
+                        String packagePath = relativePath.substring(relativePath.indexOf("src/java/") + 9);
+                        String fullClassName = packagePath.replace('/', '.').replace(".java", "");
+                        classes.add(fullClassName);
+                    } else {
+                        // 只添加简单类名
+                        classes.add(className + " [" + relativePath + "]");
+                    }
+                } catch (Exception e) {
+                    // Ignore
+                }
+            }
+        }
+    }
+
+    /**
+     * 获取仓库中所有匹配的类（用于更友好的错误提示）
+     */
+    private List<String> findMatchingClasses(File repoDir, String searchClassName) {
+        List<String> allClasses = listAvailableJavaClasses(repoDir);
+        String simpleSearchName = extractSimpleClassName(searchClassName).toLowerCase();
+
+        return allClasses.stream()
+                .filter(className -> {
+                    String simpleClassName = extractSimpleClassName(className).toLowerCase();
+                    return simpleClassName.contains(simpleSearchName) || simpleSearchName.contains(simpleClassName);
+                })
+                .limit(20)
+                .collect(java.util.stream.Collectors.toList());
     }
 
     /**
@@ -408,7 +649,7 @@ public class TestGenerationController {
             updateTaskStatus(taskId, "GENERATING", 50, "正在生成测试代码...");
 
             // 调用Claude生成测试代码
-            String prompt = buildTestGenerationPrompt(className, testType, qualityLevel, classCode);
+            String prompt = buildTestGenerationPrompt(className, testType, qualityLevel, classCode, null);
             ClaudeQueryResponse claudeResponse = claudeQueryPort.query(prompt);
 
             if (claudeResponse.isSuccessful()) {
@@ -500,29 +741,186 @@ public class TestGenerationController {
     }
 
     /**
+     * 将源代码路径转换为测试路径
+     * 例如: user-growing-reach-manager/src/main/java/com/oppo/.../BadgeServiceImpl.java
+     *      -> user-growing-reach-manager/src/test/java/com/oppo/.../BadgeServiceImplTest.java
+     */
+    private String convertToTestPath(String classFilePath, String className) {
+        // 1. 将 src/main/java 替换为 src/test/java
+        String testPath = classFilePath.replace("/src/main/java/", "/src/test/java/")
+                                        .replace("\\src\\main\\java\\", "\\src\\test\\java\\");
+
+        // 2. 将类名替换为测试类名（添加Test后缀）
+        String simpleClassName = extractSimpleClassName(className);
+        testPath = testPath.replace(simpleClassName + ".java", simpleClassName + "Test.java");
+
+        return testPath;
+    }
+
+    /**
+     * 查找所有子模块目录
+     * 识别Maven/Gradle多模块项目的子模块
+     */
+    private List<File> findSubModules(File repoDir) {
+        List<File> modules = new ArrayList<>();
+        File[] files = repoDir.listFiles();
+
+        if (files == null) {
+            return modules;
+        }
+
+        for (File file : files) {
+            if (file.isDirectory()) {
+                String dirName = file.getName();
+
+                // 跳过明确的非模块目录
+                if (dirName.equals(".git") || dirName.equals("target") ||
+                    dirName.equals("build") || dirName.equals("out") ||
+                    dirName.equals("node_modules") || dirName.equals(".idea") ||
+                    dirName.startsWith(".")) {
+                    continue;
+                }
+
+                // 检查是否是Maven/Gradle模块
+                // 1. 包含 pom.xml (Maven)
+                // 2. 包含 build.gradle (Gradle)
+                // 3. 包含 src/main/java 目录
+                File pomXml = new File(file, "pom.xml");
+                File buildGradle = new File(file, "build.gradle");
+                File srcMainJava = new File(file, "src/main/java");
+
+                if (pomXml.exists() || buildGradle.exists() || srcMainJava.exists()) {
+                    modules.add(file);
+                    logger.info("  Found sub-module: {}", dirName);
+                }
+            }
+        }
+
+        return modules;
+    }
+
+    /**
      * 查找Java类文件
      */
     private String findJavaClassFile(File repoDir, String className) {
         try {
-            // 简化实现：假设类在标准Maven目录结构中
-            String[] possiblePaths = {
-                    "src/main/java/" + className.replace('.', '/') + ".java",
-                    "src/main/java/**/" + className + ".java"
-            };
+            logger.info("Searching for Java class: {} in directory: {}", className, repoDir.getAbsolutePath());
 
-            for (String path : possiblePaths) {
-                File classFile = new File(repoDir, path);
-                if (classFile.exists()) {
-                    return path;
+            // 检查目录是否存在
+            if (!repoDir.exists()) {
+                logger.error("Repository directory does not exist: {}", repoDir.getAbsolutePath());
+                return null;
+            }
+
+            // 列出根目录的内容以便调试
+            File[] rootFiles = repoDir.listFiles();
+            if (rootFiles != null) {
+                logger.info("Root directory contains {} items:", rootFiles.length);
+                for (File f : rootFiles) {
+                    logger.info("  - {} ({})", f.getName(), f.isDirectory() ? "DIR" : "FILE");
                 }
             }
 
-            // 递归查找
-            return findJavaFileRecursively(repoDir, className);
+            // 列出所有Java文件的完整路径（用于调试）
+            logger.info("Listing all Java files in repository...");
+            List<String> allJavaFiles = new ArrayList<>();
+            listAllJavaFiles(repoDir, repoDir, allJavaFiles);
+            logger.info("Found {} Java files total", allJavaFiles.size());
+
+            // 打印前20个文件路径
+            for (int i = 0; i < Math.min(20, allJavaFiles.size()); i++) {
+                logger.info("  Java file [{}]: {}", i+1, allJavaFiles.get(i));
+            }
+
+            // 如果className包含包路径（用.分隔），先尝试直接路径
+            if (className.contains(".")) {
+                // 尝试标准路径（单模块项目）
+                String directPath = "src/main/java/" + className.replace('.', '/') + ".java";
+                File classFile = new File(repoDir, directPath);
+                logger.info("Trying direct path: {}", directPath);
+                if (classFile.exists()) {
+                    logger.info("Found class at direct path: {}", directPath);
+                    return directPath;
+                }
+
+                // 尝试多模块项目路径
+                // 扫描所有可能的子模块目录
+                logger.info("Trying multi-module Maven/Gradle project structure...");
+                List<File> subModules = findSubModules(repoDir);
+                logger.info("Found {} potential sub-modules", subModules.size());
+
+                String classPathInModule = "src/main/java/" + className.replace('.', '/') + ".java";
+                for (File module : subModules) {
+                    String modulePath = module.getName() + "/" + classPathInModule;
+                    File moduleFile = new File(repoDir, modulePath);
+                    logger.info("Trying module path: {}", modulePath);
+                    if (moduleFile.exists()) {
+                        logger.info("✓ Found class at module path: {}", modulePath);
+                        return modulePath;
+                    } else {
+                        logger.info("✗ Not found at: {}", modulePath);
+                    }
+                }
+            }
+
+            // 递归查找（支持简单类名和完整类名）
+            logger.info("Starting recursive search for: {}", className);
+            String result = findJavaFileRecursively(repoDir, className);
+
+            if (result != null) {
+                logger.info("Found Java class {} at path: {}", className, result);
+            } else {
+                logger.error("Java class {} not found in repository: {}", className, repoDir.getAbsolutePath());
+                logger.error("Please ensure:");
+                logger.error("  1. The class name is correct (e.g., 'BadgeServiceImpl' or 'com.example.service.BadgeServiceImpl')");
+                logger.error("  2. The repository has been cloned successfully");
+                logger.error("  3. The class file exists in the repository");
+
+                // 额外调试：搜索包含类名的所有文件
+                String simpleClassName = extractSimpleClassName(className);
+                logger.error("Searching for files containing '{}'...", simpleClassName);
+                for (String javaFile : allJavaFiles) {
+                    if (javaFile.toLowerCase().contains(simpleClassName.toLowerCase())) {
+                        logger.error("  Potential match: {}", javaFile);
+                    }
+                }
+            }
+
+            return result;
 
         } catch (Exception e) {
             logger.error("Failed to find Java class file: {}", className, e);
             return null;
+        }
+    }
+
+    /**
+     * 列出所有Java文件（包括非标准目录）
+     */
+    private void listAllJavaFiles(File rootDir, File currentDir, List<String> javaFiles) {
+        File[] files = currentDir.listFiles();
+        if (files == null) return;
+
+        for (File file : files) {
+            if (file.isDirectory()) {
+                String dirName = file.getName();
+                // 只跳过明确的非代码目录
+                if (dirName.equals(".git") || dirName.equals("target") ||
+                    dirName.equals("build") || dirName.equals("out") ||
+                    dirName.startsWith(".")) {
+                    continue;
+                }
+                listAllJavaFiles(rootDir, file, javaFiles);
+            } else if (file.isFile() && file.getName().endsWith(".java")) {
+                try {
+                    String fullPath = file.getCanonicalPath();
+                    String rootPath = rootDir.getCanonicalPath();
+                    String relativePath = fullPath.substring(rootPath.length() + 1).replace('\\', '/');
+                    javaFiles.add(relativePath);
+                } catch (Exception e) {
+                    // Ignore
+                }
+            }
         }
     }
 
@@ -538,25 +936,39 @@ public class TestGenerationController {
      */
     private String findJavaFileRecursivelyInternal(File rootDir, File currentDir, String className) {
         File[] files = currentDir.listFiles();
-        if (files != null) {
-            for (File file : files) {
-                if (file.isDirectory()) {
-                    // 跳过常见的非源码目录
-                    String dirName = file.getName();
-                    if (dirName.equals(".git") || dirName.equals("target") ||
-                        dirName.equals("build") || dirName.equals("node_modules")) {
-                        continue;
-                    }
 
-                    String result = findJavaFileRecursivelyInternal(rootDir, file, className);
-                    if (result != null) {
-                        return result;
-                    }
-                } else if (file.getName().equals(className + ".java")) {
+        if (files == null) {
+            logger.debug("Cannot list files in directory: {}", currentDir.getAbsolutePath());
+            return null;
+        }
+
+        for (File file : files) {
+            if (file.isDirectory()) {
+                // 跳过常见的非源码目录
+                String dirName = file.getName();
+                if (dirName.equals(".git") || dirName.equals("target") ||
+                    dirName.equals("build") || dirName.equals("node_modules") ||
+                    dirName.equals(".idea") || dirName.equals("out") ||
+                    dirName.equals("bin") || dirName.startsWith(".")) {
+                    continue;
+                }
+
+                String result = findJavaFileRecursivelyInternal(rootDir, file, className);
+                if (result != null) {
+                    return result;
+                }
+            } else if (file.isFile()) {
+                // 支持简单类名和完整类名匹配
+                String fileName = file.getName();
+                String simpleClassName = extractSimpleClassName(className);
+
+                if (fileName.equals(simpleClassName + ".java")) {
                     try {
                         String fullPath = file.getCanonicalPath();
                         String rootPath = rootDir.getCanonicalPath();
-                        return fullPath.substring(rootPath.length() + 1).replace('\\', '/');
+                        String relativePath = fullPath.substring(rootPath.length() + 1).replace('\\', '/');
+                        logger.debug("Found matching file: {} for class: {}", relativePath, className);
+                        return relativePath;
                     } catch (Exception e) {
                         logger.warn("Failed to get canonical path for {}", file, e);
                     }
@@ -567,15 +979,26 @@ public class TestGenerationController {
     }
 
     /**
+     * 提取简单类名（去除包路径）
+     */
+    private String extractSimpleClassName(String className) {
+        if (className.contains(".")) {
+            return className.substring(className.lastIndexOf('.') + 1);
+        }
+        return className;
+    }
+
+    /**
      * 构建测试生成提示词
      */
-    private String buildTestGenerationPrompt(String className, String testType, Integer qualityLevel, String classCode) {
+    private String buildTestGenerationPrompt(String className, String testType, Integer qualityLevel,
+                                            String classCode, String requirement) {
         StringBuilder prompt = new StringBuilder();
 
         prompt.append("请为以下Java类生成完整的单元测试代码。\n\n");
         prompt.append("类名: ").append(className).append("\n");
-        prompt.append("测试类型: ").append(getTestTypeDescription(testType)).append("\n");
-        prompt.append("质量级别: ").append(qualityLevel).append("/5\n\n");
+        prompt.append("测试类型: Mock测试\n");
+        prompt.append("质量级别: 完美（5/5）\n\n");
 
         prompt.append("源代码:\n");
         prompt.append("```java\n");
@@ -584,14 +1007,20 @@ public class TestGenerationController {
 
         prompt.append("请生成符合以下要求的JUnit 5测试代码:\n");
         prompt.append("1. 使用JUnit 5注解和断言\n");
-        prompt.append("2. 包含适当的Mock对象（使用Mockito）\n");
-        prompt.append("3. 测试所有公共方法\n");
-        prompt.append("4. 包含边界条件和异常情况测试\n");
-        prompt.append("5. 使用有意义的测试方法名\n");
+        prompt.append("2. 使用Mockito进行依赖Mock，覆盖所有依赖项\n");
+        prompt.append("3. 测试所有公共方法，包含正常场景和异常场景\n");
+        prompt.append("4. 包含边界条件测试和异常情况测试\n");
+        prompt.append("5. 使用有意义的测试方法名（格式：should_ExpectedBehavior_when_StateUnderTest）\n");
         prompt.append("6. 包含@BeforeEach和@AfterEach方法（如需要）\n");
-        prompt.append("7. 生成完整的测试类，包括包声明和导入\n\n");
+        prompt.append("7. 生成完整的测试类，包括包声明和导入\n");
+        prompt.append("8. 确保测试覆盖率达到80%以上\n");
 
-        prompt.append("请直接返回可编译的Java测试代码，不要包含额外的解释文字。");
+        if (requirement != null && !requirement.trim().isEmpty()) {
+            prompt.append("\n额外要求:\n");
+            prompt.append(requirement.trim()).append("\n");
+        }
+
+        prompt.append("\n请直接返回可编译的Java测试代码，不要包含额外的解释文字。");
 
         return prompt.toString();
     }

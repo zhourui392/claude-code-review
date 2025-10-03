@@ -130,7 +130,7 @@ public class ReviewControllerTest {
                 anyString(),
                 eq("Git代码审查项目 - Test Repo"),
                 eq("代码审查: main -> feature/test"),
-                eq("comprehensive")
+                eq("standard") // 默认模式已改为 standard
         );
     }
 

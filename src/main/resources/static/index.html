@@ -140,12 +140,48 @@
                             
                             <el-form-item label="目标分支">
                                 <el-select v-model="reviewForm.targetBranch" placeholder="请选择目标分支" filterable allow-create>
-                                    <el-option v-for="branch in branches" 
-                                               :key="'target-' + branch" 
-                                               :label="branch" 
+                                    <el-option v-for="branch in branches"
+                                               :key="'target-' + branch"
+                                               :label="branch"
                                                :value="branch">
                                     </el-option>
                                 </el-select>
+                            </el-form-item>
+
+                            <el-form-item label="审查模式">
+                                <el-select v-model="reviewForm.mode" placeholder="请选择审查模式">
+                                    <el-option label="⚡ 快速审查 (2-5分钟)" value="quick">
+                                        <span style="float: left">⚡ 快速审查</span>
+                                        <span style="float: right; color: #8492a6; font-size: 13px">2-5分钟</span>
+                                    </el-option>
+                                    <el-option label="📋 标准审查 (5-10分钟)" value="standard">
+                                        <span style="float: left">📋 标准审查</span>
+                                        <span style="float: right; color: #8492a6; font-size: 13px">5-10分钟</span>
+                                    </el-option>
+                                    <el-option label="🔍 深度审查 (10-20分钟)" value="deep">
+                                        <span style="float: left">🔍 深度审查</span>
+                                        <span style="float: right; color: #8492a6; font-size: 13px">10-20分钟</span>
+                                    </el-option>
+                                    <el-option label="🔒 安全审查 (5-10分钟)" value="security">
+                                        <span style="float: left">🔒 安全审查</span>
+                                        <span style="float: right; color: #8492a6; font-size: 13px">5-10分钟</span>
+                                    </el-option>
+                                    <el-option label="⚡ 性能审查 (5-10分钟)" value="performance">
+                                        <span style="float: left">⚡ 性能审查</span>
+                                        <span style="float: right; color: #8492a6; font-size: 13px">5-10分钟</span>
+                                    </el-option>
+                                    <el-option label="🏗️ 架构审查 (5-10分钟)" value="architecture">
+                                        <span style="float: left">🏗️ 架构审查</span>
+                                        <span style="float: right; color: #8492a6; font-size: 13px">5-10分钟</span>
+                                    </el-option>
+                                </el-select>
+                                <el-alert
+                                    v-if="reviewForm.mode"
+                                    :title="getModeDescription(reviewForm.mode)"
+                                    type="info"
+                                    :closable="false"
+                                    style="margin-top: 10px">
+                                </el-alert>
                             </el-form-item>
 
                             <el-form-item>
@@ -156,7 +192,25 @@
                         </el-form>
 
                         <div v-if="reviewResult" class="review-result">
-                            <h4>Review结果：</h4>
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                                <h4 style="margin: 0;">Review结果：</h4>
+                                <el-button-group v-if="currentReviewId">
+                                    <el-button
+                                        size="small"
+                                        icon="el-icon-download"
+                                        @click="exportMarkdown"
+                                        :loading="exportLoading">
+                                        导出 Markdown
+                                    </el-button>
+                                    <el-button
+                                        size="small"
+                                        icon="el-icon-document"
+                                        @click="exportJson"
+                                        :loading="exportLoading">
+                                        导出 JSON
+                                    </el-button>
+                                </el-button-group>
+                            </div>
                             <div>{{ reviewResult }}</div>
                         </div>
                     </div>
@@ -208,21 +262,16 @@
                                 </div>
                             </el-form-item>
 
-                            <el-form-item label="测试类型">
-                                <el-select v-model="testGenForm.testType" placeholder="请选择测试类型">
-                                    <el-option label="基础单元测试" value="basic"></el-option>
-                                    <el-option label="全面测试覆盖" value="comprehensive"></el-option>
-                                    <el-option label="Mock测试" value="mock"></el-option>
-                                    <el-option label="集成测试" value="integration"></el-option>
-                                </el-select>
-                            </el-form-item>
-
-                            <el-form-item label="质量要求">
-                                <el-slider v-model="testGenForm.qualityLevel"
-                                          :min="1" :max="5"
-                                          show-stops
-                                          :format-tooltip="formatQualityTooltip">
-                                </el-slider>
+                            <el-form-item label="测试要求">
+                                <el-input
+                                    type="textarea"
+                                    v-model="testGenForm.requirement"
+                                    :rows="4"
+                                    placeholder="可选，输入对测试代码的特殊要求（如：需要测试边界条件、需要覆盖异常场景等）">
+                                </el-input>
+                                <div style="color: #909399; font-size: 12px; margin-top: 5px;">
+                                    可选填写，留空则使用默认的Mock测试标准（完美质量）
+                                </div>
                             </el-form-item>
 
                             <el-form-item>
@@ -335,15 +384,17 @@
                     reviewForm: {
                         repositoryId: '',
                         baseBranch: 'master',
-                        targetBranch: ''
+                        targetBranch: '',
+                        mode: 'deep'
                     },
                     testGenForm: {
                         repositoryId: '',
                         branch: 'master',
                         className: '',
                         gateId: '',
-                        testType: 'basic',
-                        qualityLevel: 3
+                        requirement: '',
+                        testType: 'mock',
+                        qualityLevel: 5
                     },
                     newRepository: {
                         name: '',
@@ -357,6 +408,8 @@
                     remoteLoading: false,
                     testGenLoading: false,
                     reviewResult: '',
+                    currentReviewId: null,
+                    exportLoading: false,
                     testGenProgress: {
                         show: false,
                         currentStep: 0,
@@ -464,12 +517,14 @@
 
                     this.reviewLoading = true;
                     this.reviewResult = '';
+                    this.currentReviewId = null;
 
                     try {
                         // 修复：使用POST请求并通过FormData传递参数
                         const params = new URLSearchParams();
                         params.append('baseBranch', this.reviewForm.baseBranch);
                         params.append('targetBranch', this.reviewForm.targetBranch);
+                        params.append('mode', this.reviewForm.mode);
 
                         const response = await axios.post(
                             `/api/review/${this.reviewForm.repositoryId}/claude`,
@@ -481,11 +536,134 @@
                             }
                         );
                         this.reviewResult = response.data;
+                        // 使用repositoryId作为临时的reviewId（用于文件命名）
+                        this.currentReviewId = this.reviewForm.repositoryId;
                         this.$message.success('Review完成');
                     } catch (error) {
                         this.$message.error('Review失败: ' + (error.response?.data || error.message));
                     } finally {
                         this.reviewLoading = false;
+                    }
+                },
+
+                // 获取审查模式说明
+                getModeDescription(mode) {
+                    const descriptions = {
+                        'quick': '快速审查：仅关注关键Bug、安全漏洞和严重性能问题，适合日常PR审查',
+                        'standard': '标准审查：平衡的审查深度，覆盖常见的代码质量问题，适合功能合并前检查',
+                        'deep': '深度审查：全面深入的审查，包含详细的问题分级(P0-P3)、修复建议和代码示例，适合版本发布前的严格审查',
+                        'security': '安全审查：专注于安全漏洞检测，包括SQL注入、XSS、CSRF、认证授权等问题',
+                        'performance': '性能审查：专注于性能问题，包括N+1查询、慢SQL、内存泄漏、资源未关闭等',
+                        'architecture': '架构审查：关注架构设计，包括分层耦合、SOLID原则、设计模式应用等'
+                    };
+                    return descriptions[mode] || '';
+                },
+
+                // 导出Markdown格式报告
+                async exportMarkdown() {
+                    if (!this.reviewResult) {
+                        this.$message.warning('没有可导出的审查结果');
+                        return;
+                    }
+
+                    this.exportLoading = true;
+                    try {
+                        // 创建Markdown内容
+                        const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
+                        const filename = `review-${this.currentReviewId}-${timestamp}.md`;
+
+                        // 构建完整的Markdown内容
+                        const repoName = this.repositories.find(r => r.id === this.reviewForm.repositoryId)?.name || 'Unknown';
+                        const markdown = `# 代码审查报告
+
+## 基本信息
+
+- **仓库**: ${repoName}
+- **分支**: ${this.reviewForm.baseBranch} → ${this.reviewForm.targetBranch}
+- **审查时间**: ${new Date().toLocaleString('zh-CN')}
+
+---
+
+## 审查结果
+
+${this.reviewResult}
+
+---
+
+**报告生成时间**: ${new Date().toLocaleString('zh-CN')}
+**生成工具**: Git Review Service
+`;
+
+                        // 创建Blob并下载
+                        const blob = new Blob([markdown], { type: 'text/markdown;charset=utf-8' });
+                        const url = window.URL.createObjectURL(blob);
+                        const link = document.createElement('a');
+                        link.href = url;
+                        link.download = filename;
+                        document.body.appendChild(link);
+                        link.click();
+                        document.body.removeChild(link);
+                        window.URL.revokeObjectURL(url);
+
+                        this.$message.success('Markdown报告已导出');
+                    } catch (error) {
+                        this.$message.error('导出失败: ' + error.message);
+                    } finally {
+                        this.exportLoading = false;
+                    }
+                },
+
+                // 导出JSON格式报告
+                async exportJson() {
+                    if (!this.reviewResult) {
+                        this.$message.warning('没有可导出的审查结果');
+                        return;
+                    }
+
+                    this.exportLoading = true;
+                    try {
+                        const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
+                        const filename = `review-${this.currentReviewId}-${timestamp}.json`;
+
+                        const repoName = this.repositories.find(r => r.id === this.reviewForm.repositoryId)?.name || 'Unknown';
+
+                        // 构建JSON数据
+                        const jsonData = {
+                            reviewId: this.currentReviewId,
+                            repository: {
+                                id: this.reviewForm.repositoryId,
+                                name: repoName
+                            },
+                            branches: {
+                                base: this.reviewForm.baseBranch,
+                                target: this.reviewForm.targetBranch
+                            },
+                            reviewTime: new Date().toISOString(),
+                            result: this.reviewResult,
+                            metadata: {
+                                generatedBy: 'Git Review Service',
+                                version: '1.0.0'
+                            }
+                        };
+
+                        // 创建Blob并下载
+                        const blob = new Blob([JSON.stringify(jsonData, null, 2)], {
+                            type: 'application/json;charset=utf-8'
+                        });
+                        const url = window.URL.createObjectURL(blob);
+                        const link = document.createElement('a');
+                        link.href = url;
+                        link.download = filename;
+                        document.body.appendChild(link);
+                        link.click();
+                        document.body.removeChild(link);
+                        window.URL.revokeObjectURL(url);
+
+                        this.$message.success('JSON报告已导出');
+                    } catch (error) {
+                        this.$message.error('导出失败: ' + error.message);
+                    } finally {
+                        this.exportLoading = false;
                     }
                 },
 
@@ -519,8 +697,9 @@
                         branch: 'master',
                         className: '',
                         gateId: '',
-                        testType: 'basic',
-                        qualityLevel: 3
+                        requirement: '',
+                        testType: 'mock',
+                        qualityLevel: 5
                     };
                     this.testGenProgress.show = false;
                     this.testGenResult.show = false;
@@ -546,6 +725,8 @@
                             repositoryId: this.testGenForm.repositoryId,
                             branch: this.testGenForm.branch,
                             className: this.testGenForm.className,
+                            gateId: this.testGenForm.gateId,
+                            requirement: this.testGenForm.requirement,
                             testType: this.testGenForm.testType,
                             qualityLevel: this.testGenForm.qualityLevel
                         });

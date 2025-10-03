@@ -1,0 +1,155 @@
+{
+  "testRepositories": [
+    {
+      "id": 9999,
+      "name": "test-code-review-samples",
+      "description": "测试用例集合，包含P0-P3各类问题",
+      "localPath": "src/test/resources/test-data",
+      "files": [
+        {
+          "filename": "P0_SqlInjection.java",
+          "priority": "P0",
+          "expectedIssues": [
+            {
+              "severity": "CRITICAL",
+              "category": "安全问题",
+              "description": "SQL注入漏洞",
+              "method": "getUserById",
+              "linePattern": "String sql = \"SELECT.*\\+ userId"
+            },
+            {
+              "severity": "CRITICAL",
+              "category": "安全问题",
+              "description": "SQL注入漏洞",
+              "method": "login",
+              "linePattern": "String sql = \"SELECT.*\\+ username"
+            },
+            {
+              "severity": "CRITICAL",
+              "category": "安全问题",
+              "description": "SQL注入漏洞",
+              "method": "searchUsers",
+              "linePattern": "String sql = \"SELECT.*\\+ keyword"
+            }
+          ],
+          "minExpectedIssueCount": 3,
+          "testDescription": "应识别出至少3个P0级别的SQL注入漏洞"
+        },
+        {
+          "filename": "P1_N1Query.java",
+          "priority": "P1",
+          "expectedIssues": [
+            {
+              "severity": "MAJOR",
+              "category": "性能问题",
+              "description": "N+1查询问题",
+              "method": "getUserOrdersWithItems",
+              "linePattern": "for.*Order order.*orders"
+            },
+            {
+              "severity": "MAJOR",
+              "category": "性能问题",
+              "description": "嵌套循环查询",
+              "method": "getOrdersWithDetails",
+              "linePattern": "for.*Long orderId.*orderIds"
+            }
+          ],
+          "minExpectedIssueCount": 2,
+          "testDescription": "应识别出至少2个P1级别的N+1查询问题"
+        },
+        {
+          "filename": "P2_CodeDuplication.java",
+          "priority": "P2",
+          "expectedIssues": [
+            {
+              "severity": "MAJOR",
+              "category": "代码质量",
+              "description": "代码重复",
+              "pattern": "validateUser.*重复",
+              "occurrences": 3
+            },
+            {
+              "severity": "MAJOR",
+              "category": "代码质量",
+              "description": "代码重复",
+              "pattern": "calculateDiscount.*重复",
+              "occurrences": 2
+            }
+          ],
+          "minExpectedIssueCount": 2,
+          "testDescription": "应识别出至少2处P2级别的代码重复问题"
+        },
+        {
+          "filename": "P3_NamingIssue.java",
+          "priority": "P3",
+          "expectedIssues": [
+            {
+              "severity": "MINOR",
+              "category": "代码规范",
+              "description": "命名使用缩写",
+              "patterns": ["usrNm", "pwd", "cnt", "amt", "reqId"]
+            }
+          ],
+          "minExpectedIssueCount": 1,
+          "testDescription": "应识别出至少1个P3级别的命名问题"
+        }
+      ]
+    }
+  ],
+  "testScenarios": [
+    {
+      "name": "full-priority-test",
+      "description": "全优先级测试 - 验证能识别P0-P3所有问题",
+      "files": [
+        "P0_SqlInjection.java",
+        "P1_N1Query.java",
+        "P2_CodeDuplication.java",
+        "P3_NamingIssue.java"
+      ],
+      "expectedResults": {
+        "minP0Issues": 3,
+        "minP1Issues": 2,
+        "minP2Issues": 2,
+        "minP3Issues": 1,
+        "minQualityScore": 50,
+        "maxQualityScore": 75,
+        "expectedRiskLevel": "high"
+      }
+    },
+    {
+      "name": "security-focus-test",
+      "description": "安全专项测试 - 仅测试安全问题识别",
+      "files": ["P0_SqlInjection.java"],
+      "reviewMode": "security",
+      "expectedResults": {
+        "minP0Issues": 3,
+        "minSecurityIssues": 3,
+        "expectedRiskLevel": "high"
+      }
+    },
+    {
+      "name": "performance-focus-test",
+      "description": "性能专项测试 - 仅测试性能问题识别",
+      "files": ["P1_N1Query.java"],
+      "reviewMode": "performance",
+      "expectedResults": {
+        "minP1Issues": 2,
+        "minPerformanceIssues": 2
+      }
+    }
+  ],
+  "accuracyThresholds": {
+    "p0Detection": 0.90,
+    "p1Detection": 0.85,
+    "p2Detection": 0.75,
+    "p3Detection": 0.60,
+    "overallAccuracy": 0.80,
+    "falsePositiveRate": 0.20
+  },
+  "testMetadata": {
+    "version": "1.0",
+    "createdDate": "2025-10-03",
+    "purpose": "集成测试数据集，用于验证深度代码审查功能的准确性",
+    "usageInstructions": "使用 verify-review-accuracy.sh 脚本执行自动化验证"
+  }
+}

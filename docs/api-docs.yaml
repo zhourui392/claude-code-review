@@ -1,0 +1,484 @@
+openapi: 3.0.3
+info:
+  title: Git Review Service API
+  description: 基于Claude AI的智能代码审查与测试生成服务API文档
+  version: 1.0.0
+  contact:
+    name: Git Review Service Team
+    url: https://github.com/your-org/git-review-service
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+
+servers:
+  - url: http://localhost:8080
+    description: 本地开发环境
+  - url: https://review.example.com
+    description: 生产环境
+
+tags:
+  - name: 代码审查
+    description: 代码审查相关接口
+  - name: 仓库管理
+    description: Git仓库管理接口
+  - name: 测试生成
+    description: 单元测试自动生成接口
+  - name: 报告导出
+    description: 审查报告导出接口
+
+paths:
+  /api/review/{repositoryId}/claude:
+    post:
+      tags:
+        - 代码审查
+      summary: 执行代码审查
+      description: 对指定分支执行Claude AI代码审查，支持6种审查模式
+      operationId: reviewWithClaude
+      parameters:
+        - name: repositoryId
+          in: path
+          required: true
+          description: 仓库ID
+          schema:
+            type: integer
+            format: int64
+        - name: baseBranch
+          in: query
+          required: true
+          description: 基础分支（如main）
+          schema:
+            type: string
+            example: main
+        - name: targetBranch
+          in: query
+          required: true
+          description: 目标分支（要审查的分支）
+          schema:
+            type: string
+            example: feature/new-feature
+        - name: mode
+          in: query
+          required: false
+          description: 审查模式
+          schema:
+            type: string
+            enum: [quick, standard, deep, security, performance, architecture]
+            default: standard
+      responses:
+        '200':
+          description: 审查成功
+          content:
+            text/plain:
+              schema:
+                type: string
+                example: |
+                  代码审查完成
+
+                  ## 总结
+                  发现1个严重安全问题、2个性能问题
+
+                  ## 问题列表
+                  1. SQL注入漏洞 (PaymentService.java:123)
+        '404':
+          description: 仓库不存在
+        '503':
+          description: Claude CLI服务不可用
+
+  /api/review/{reviewId}/progress:
+    get:
+      tags:
+        - 代码审查
+      summary: 查询审查进度
+      description: 用于前端轮询，获取异步审查的实时进度
+      operationId: getReviewProgress
+      parameters:
+        - name: reviewId
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '200':
+          description: 成功获取进度
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReviewProgress'
+
+  /api/review/{reviewId}/export/markdown:
+    get:
+      tags:
+        - 报告导出
+      summary: 导出Markdown格式报告
+      description: 将审查结果导出为Markdown格式，适用于GitHub/GitLab PR描述
+      operationId: exportMarkdown
+      parameters:
+        - name: reviewId
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+        - name: repositoryName
+          in: query
+          required: false
+          schema:
+            type: string
+            default: Unknown Repository
+        - name: baseBranch
+          in: query
+          required: false
+          schema:
+            type: string
+            default: main
+        - name: targetBranch
+          in: query
+          required: false
+          schema:
+            type: string
+            default: feature
+        - name: mode
+          in: query
+          required: false
+          schema:
+            type: string
+            default: standard
+      responses:
+        '200':
+          description: 导出成功
+          content:
+            text/markdown:
+              schema:
+                type: string
+          headers:
+            Content-Disposition:
+              description: 文件名
+              schema:
+                type: string
+                example: attachment; filename="review-123-20251003-145230.md"
+
+  /api/review/{reviewId}/export/json:
+    get:
+      tags:
+        - 报告导出
+      summary: 导出JSON格式报告
+      description: 将审查结果导出为JSON格式，便于数据分析和集成
+      operationId: exportJson
+      parameters:
+        - name: reviewId
+          in: path
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        '200':
+          description: 导出成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExportData'
+
+  /api/repositories:
+    get:
+      tags:
+        - 仓库管理
+      summary: 获取所有仓库
+      operationId: getAllRepositories
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: '#/components/schemas/GitRepository'
+
+    post:
+      tags:
+        - 仓库管理
+      summary: 添加仓库
+      operationId: createRepository
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateRepositoryRequest'
+      responses:
+        '200':
+          description: 创建成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GitRepository'
+
+  /api/test-generation/generate:
+    post:
+      tags:
+        - 测试生成
+      summary: 生成单元测试
+      description: 为指定Java类自动生成JUnit 5单元测试
+      operationId: generateTest
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/GenerateTestRequest'
+      responses:
+        '200':
+          description: 生成任务已创建
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GenerateTestResponse'
+
+  /api/test-generation/{suiteId}:
+    get:
+      tags:
+        - 测试生成
+      summary: 查询测试套件
+      operationId: getTestSuite
+      parameters:
+        - name: suiteId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: 成功
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TestSuite'
+
+components:
+  schemas:
+    ReviewProgress:
+      type: object
+      properties:
+        reviewId:
+          type: integer
+          format: int64
+          example: 123
+        status:
+          type: string
+          enum: [PENDING, IN_PROGRESS, COMPLETED, FAILED, CANCELLED]
+          example: IN_PROGRESS
+        progress:
+          type: integer
+          minimum: 0
+          maximum: 100
+          example: 50
+        currentStep:
+          type: string
+          example: Claude正在分析代码
+        estimatedRemainingSeconds:
+          type: integer
+          example: 60
+
+    ExportData:
+      type: object
+      properties:
+        reviewId:
+          type: integer
+          format: int64
+        status:
+          type: string
+        createTime:
+          type: string
+          format: date-time
+        updateTime:
+          type: string
+          format: date-time
+        progress:
+          type: integer
+        result:
+          $ref: '#/components/schemas/ReviewResult'
+
+    ReviewResult:
+      type: object
+      properties:
+        summary:
+          type: string
+          example: 发现1个严重安全问题、2个性能问题和若干代码质量建议
+        qualityScore:
+          type: integer
+          minimum: 0
+          maximum: 100
+          example: 65
+        issues:
+          type: array
+          items:
+            $ref: '#/components/schemas/Issue'
+        suggestions:
+          type: array
+          items:
+            $ref: '#/components/schemas/Suggestion'
+
+    Issue:
+      type: object
+      required:
+        - priority
+        - severity
+        - category
+        - filePath
+        - lineNumber
+        - description
+      properties:
+        priority:
+          type: string
+          enum: [P0, P1, P2, P3]
+          example: P0
+        severity:
+          type: string
+          enum: [CRITICAL, MAJOR, MINOR, INFO]
+          example: CRITICAL
+        category:
+          type: string
+          example: 安全问题
+        filePath:
+          type: string
+          example: src/main/java/PaymentService.java
+        lineNumber:
+          type: integer
+          example: 123
+        description:
+          type: string
+          example: SQL注入漏洞
+        codeSnippet:
+          type: string
+          example: |
+            String sql = "SELECT * FROM orders WHERE id=" + orderId;
+        impact:
+          type: string
+          example: 攻击者可通过构造特殊输入获取其他用户数据
+        fixSuggestion:
+          $ref: '#/components/schemas/FixSuggestion'
+
+    FixSuggestion:
+      type: object
+      properties:
+        rootCause:
+          type: string
+          example: 直接拼接用户输入到SQL语句
+        fixApproach:
+          type: string
+          example: 使用PreparedStatement参数化查询
+        codeExample:
+          type: string
+          example: |
+            PreparedStatement stmt = conn.prepareStatement("SELECT * FROM orders WHERE id = ?");
+            stmt.setLong(1, orderId);
+        testStrategy:
+          type: string
+          example: 单元测试验证参数化查询，尝试SQL注入攻击测试
+        estimatedMinutes:
+          type: integer
+          example: 10
+        references:
+          type: array
+          items:
+            type: string
+          example: [OWASP Top 10, 阿里巴巴Java开发手册]
+
+    Suggestion:
+      type: object
+      properties:
+        category:
+          type: string
+          example: 测试覆盖
+        description:
+          type: string
+          example: 建议为支付核心逻辑添加单元测试
+        priority:
+          type: integer
+          minimum: 1
+          maximum: 10
+          example: 9
+
+    GitRepository:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+        name:
+          type: string
+        url:
+          type: string
+        username:
+          type: string
+        encryptedPassword:
+          type: string
+
+    CreateRepositoryRequest:
+      type: object
+      required:
+        - name
+        - url
+      properties:
+        name:
+          type: string
+          example: my-project
+        url:
+          type: string
+          example: https://github.com/username/repo.git
+        username:
+          type: string
+          example: myusername
+        encryptedPassword:
+          type: string
+          example: github_pat_xxx
+
+    GenerateTestRequest:
+      type: object
+      required:
+        - repositoryId
+        - branch
+        - classPath
+      properties:
+        repositoryId:
+          type: integer
+          format: int64
+          example: 1
+        branch:
+          type: string
+          example: main
+        classPath:
+          type: string
+          example: src/main/java/com/example/UserService.java
+
+    GenerateTestResponse:
+      type: object
+      properties:
+        taskId:
+          type: string
+          example: TG_1_1696334567890
+        status:
+          type: string
+          enum: [PENDING, GENERATING, VALIDATING, COMPLETED, FAILED]
+          example: PENDING
+        message:
+          type: string
+          example: 测试生成任务已创建
+
+    TestSuite:
+      type: object
+      properties:
+        taskId:
+          type: string
+        status:
+          type: string
+        testCode:
+          type: string
+        testFilePath:
+          type: string
+        coverage:
+          type: integer
+        complexity:
+          type: integer

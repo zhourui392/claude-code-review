@@ -16,6 +16,7 @@ import com.example.gitreview.domain.shared.exception.BusinessRuleException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -49,6 +50,9 @@ public class CodeReviewApplicationService {
 
     @Autowired
     private com.example.gitreview.infrastructure.parser.ReviewResultParser reviewResultParser;
+
+    @Autowired
+    private com.example.gitreview.infrastructure.workspace.TempWorkspaceManager workspaceManager;
 
     /**
      * 创建代码审查
@@ -289,8 +293,12 @@ public class CodeReviewApplicationService {
      */
     private CodeDiff generateCodeDiff(String repositoryUrl, String username, String password,
                                      String baseBranch, String targetBranch, Long repositoryId) {
+        String workspaceId = null;
         try {
-            // 克隆仓库
+            // 创建临时工作空间（TTL 60 分钟，足够审查完成）
+            workspaceId = workspaceManager.createWorkspace("code-review", 60);
+
+            // 克隆仓库到工作空间
             java.io.File repoDir = gitOperationPort.cloneRepository(repositoryUrl, username, password, targetBranch);
 
             // 获取差异
@@ -312,9 +320,16 @@ public class CodeReviewApplicationService {
                 fileChanges.add(fileChange);
             }
 
-            return new CodeDiff(repositoryId, baseBranch, targetBranch, diffContent.toString(), fileChanges);
+            CodeDiff codeDiff = new CodeDiff(repositoryId, baseBranch, targetBranch, diffContent.toString(), fileChanges);
+            codeDiff.setWorkspaceId(workspaceId);
+
+            return codeDiff;
 
         } catch (Exception e) {
+            // 如果创建失败，清理工作空间
+            if (workspaceId != null) {
+                workspaceManager.cleanupWorkspace(workspaceId);
+            }
             throw new RuntimeException("Failed to generate code diff: " + e.getMessage(), e);
         }
     }
@@ -339,21 +354,32 @@ public class CodeReviewApplicationService {
 
     /**
      * 异步执行审查
+     * 使用异步线程池执行代码审查，并实时更新进度
      */
-    private void executeReviewAsync(Long reviewId) {
-        // 在实际实现中，这里应该使用异步任务执行器
-        // 这里简化为同步调用
-        try {
-            CodeReview codeReview = getCodeReviewById(reviewId);
+    @Async("reviewExecutor")
+    public void executeReviewAsync(Long reviewId) {
+        logger.info("开始异步执行代码审查: {}", reviewId);
 
+        try {
+            // 0% - 开始审查
+            CodeReview codeReview = getCodeReviewById(reviewId);
+            updateReviewProgress(reviewId, 0, "开始代码审查");
+
+            // 10% - 检查服务可用性
             if (!claudeQueryPort.isAvailable()) {
                 throw new BusinessRuleException("Claude service is not available");
             }
+            updateReviewProgress(reviewId, 10, "检查Claude服务");
 
-            // 提取上下文（针对深度审查模式）
+            // 30% - 提取上下文（针对深度审查模式）
+            logger.info("提取代码上下文: {}", reviewId);
             String contextInfo = extractContextForReview(codeReview);
+            updateReviewProgress(reviewId, 30, "提取代码上下文");
 
-            // 调用Claude进行审查
+            // 50% - 调用Claude进行审查
+            logger.info("调用Claude进行代码审查: {}", reviewId);
+            updateReviewProgress(reviewId, 50, "Claude分析中");
+
             ClaudeQueryResponse response = claudeQueryPort.reviewCodeChanges(
                 codeReview.getCodeDiff().getDiffContent(),
                 "Git代码审查项目", // 项目上下文
@@ -361,22 +387,47 @@ public class CodeReviewApplicationService {
                 codeReview.getStrategy().getMode().getCode()
             );
 
+            // 80% - 解析审查结果
+            updateReviewProgress(reviewId, 80, "解析审查结果");
+
             if (response.isSuccessful()) {
                 // 使用 ReviewResultParser 解析审查结果
                 ReviewResult result = reviewResultParser.parse(response.getOutput());
+
+                // 90% - 保存结果
+                updateReviewProgress(reviewId, 90, "保存审查结果");
 
                 // 完成审查
                 codeReview.completeReview();
                 codeReviewRepository.save(codeReview);
 
-                logger.info("Completed code review {} successfully", reviewId);
+                // 100% - 完成
+                logger.info("异步代码审查完成: {}", reviewId);
             } else {
                 markReviewAsFailed(reviewId, response.getError());
             }
 
         } catch (Exception e) {
-            logger.error("Failed to execute review {}", reviewId, e);
+            logger.error("异步审查执行失败: {}", reviewId, e);
             markReviewAsFailed(reviewId, e.getMessage());
+        }
+    }
+
+    /**
+     * 更新审查进度
+     * @param reviewId 审查ID
+     * @param progress 进度百分比
+     * @param stepDescription 当前步骤描述
+     */
+    private void updateReviewProgress(Long reviewId, int progress, String stepDescription) {
+        try {
+            CodeReview codeReview = getCodeReviewById(reviewId);
+            codeReview.updateProgress(progress);
+            codeReviewRepository.save(codeReview);
+            logger.debug("审查进度更新: {} - {}% - {}", reviewId, progress, stepDescription);
+        } catch (Exception e) {
+            logger.warn("更新审查进度失败: {}", reviewId, e);
+            // 不抛出异常，避免影响主流程
         }
     }
 
@@ -395,6 +446,20 @@ public class CodeReviewApplicationService {
                 return "";
             }
 
+            // 检查是否有工作空间ID
+            String workspaceId = codeDiff.getWorkspaceId();
+            if (workspaceId == null) {
+                logger.warn("CodeDiff 没有关联工作空间，无法提取上下文");
+                return "";
+            }
+
+            // 获取工作空间目录
+            java.io.File workspaceDir = workspaceManager.getWorkspaceFile(workspaceId);
+            if (workspaceDir == null || !workspaceDir.exists()) {
+                logger.warn("工作空间不存在: {}", workspaceId);
+                return "";
+            }
+
             StringBuilder contextBuilder = new StringBuilder();
             contextBuilder.append("## 代码上下文信息\n\n");
 
@@ -405,12 +470,29 @@ public class CodeReviewApplicationService {
                 }
 
                 try {
-                    // 读取文件内容（需要从Git仓库读取）
-                    // 这里简化处理，实际需要通过GitOperationPort读取文件
-                    // String fileContent = gitOperationPort.readFile(repoDir, fileChange.getFilePath());
+                    // 读取文件内容
+                    java.io.File file = new java.io.File(workspaceDir, fileChange.getFilePath());
+                    if (!file.exists()) {
+                        logger.warn("文件不存在: {}", file.getPath());
+                        continue;
+                    }
 
-                    // 由于无法直接访问仓库，这里先跳过上下文提取
-                    // TODO: 需要改进架构，保留仓库克隆以便读取文件内容
+                    String fileContent = gitOperationPort.readFileContent(file);
+
+                    // 从CodeDiff中提取变更的行号
+                    List<Integer> changedLines = extractChangedLinesFromDiff(
+                            codeDiff.getDiffContent(),
+                            fileChange.getFilePath()
+                    );
+
+                    // 使用 CodeContextExtractor 提取上下文
+                    com.example.gitreview.infrastructure.context.FileContext fileContext =
+                        contextExtractor.extractContext(fileChange.getFilePath(), fileContent, changedLines);
+
+                    if (!fileContext.isEmpty()) {
+                        contextBuilder.append(fileContext.toPromptString());
+                        contextBuilder.append("\n");
+                    }
 
                 } catch (Exception e) {
                     logger.warn("无法提取文件上下文: {}", fileChange.getFilePath(), e);
@@ -423,6 +505,77 @@ public class CodeReviewApplicationService {
             logger.error("提取上下文失败", e);
             return "";
         }
+    }
+
+    /**
+     * 从Git Diff中提取变更的行号
+     * @param diffContent Git Diff完整内容
+     * @param filePath 目标文件路径
+     * @return 变更的行号列表
+     */
+    private List<Integer> extractChangedLinesFromDiff(String diffContent, String filePath) {
+        List<Integer> changedLines = new java.util.ArrayList<>();
+
+        if (diffContent == null || diffContent.isEmpty()) {
+            return changedLines;
+        }
+
+        try {
+            // 分割diff内容为行
+            String[] lines = diffContent.split("\n");
+
+            boolean inTargetFile = false;
+            int currentLineNumber = 0;
+
+            for (String line : lines) {
+                // 检查是否是目标文件的diff块
+                if (line.startsWith("diff --git") || line.startsWith("--- ") || line.startsWith("+++ ")) {
+                    if (line.contains(filePath)) {
+                        inTargetFile = true;
+                    } else if (line.startsWith("diff --git")) {
+                        inTargetFile = false;
+                    }
+                    continue;
+                }
+
+                if (!inTargetFile) {
+                    continue;
+                }
+
+                // 解析 @@ 行号标记
+                // 格式: @@ -45,7 +45,8 @@ 或 @@ -45 +45,8 @@
+                if (line.startsWith("@@")) {
+                    java.util.regex.Pattern pattern = java.util.regex.Pattern.compile("@@\\s+-\\d+(?:,\\d+)?\\s+\\+(\\d+)(?:,\\d+)?\\s+@@");
+                    java.util.regex.Matcher matcher = pattern.matcher(line);
+                    if (matcher.find()) {
+                        currentLineNumber = Integer.parseInt(matcher.group(1));
+                    }
+                    continue;
+                }
+
+                // 处理变更行
+                if (currentLineNumber > 0) {
+                    if (line.startsWith("+") && !line.startsWith("+++")) {
+                        // 新增行或修改后的行
+                        changedLines.add(currentLineNumber);
+                        currentLineNumber++;
+                    } else if (line.startsWith("-") && !line.startsWith("---")) {
+                        // 删除的行，不增加行号
+                        // 不添加到changedLines，因为这些行已经不存在
+                    } else if (line.startsWith(" ") || (!line.startsWith("+") && !line.startsWith("-"))) {
+                        // 上下文行（未变更的行）
+                        currentLineNumber++;
+                    }
+                }
+            }
+
+            logger.debug("从Diff中提取到 {} 个变更行号: {}", changedLines.size(), filePath);
+
+        } catch (Exception e) {
+            logger.warn("解析Diff内容失败: {}", filePath, e);
+        }
+
+        return changedLines;
     }
 
     /**
