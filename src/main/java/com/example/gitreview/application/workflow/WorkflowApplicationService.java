@@ -4,15 +4,22 @@ import com.example.gitreview.application.workflow.dto.*;
 import com.example.gitreview.domain.workflow.exception.WorkflowNotFoundException;
 import com.example.gitreview.domain.workflow.model.WorkflowStatus;
 import com.example.gitreview.domain.workflow.model.aggregate.DevelopmentWorkflow;
+import com.example.gitreview.domain.workflow.model.valueobject.CodeStyleConfig;
 import com.example.gitreview.domain.workflow.model.valueobject.Specification;
 import com.example.gitreview.domain.workflow.model.valueobject.Task;
 import com.example.gitreview.domain.workflow.model.valueobject.TaskList;
 import com.example.gitreview.domain.workflow.model.valueobject.TechnicalDesign;
 import com.example.gitreview.domain.workflow.repository.WorkflowRepository;
 import com.example.gitreview.domain.workflow.service.WorkflowDomainService;
+import com.example.gitreview.infrastructure.claude.ClaudeCodePort;
+import com.example.gitreview.infrastructure.claude.ClaudeCodeResult;
 import com.example.gitreview.infrastructure.claude.ClaudeQueryPort;
+import com.example.gitreview.infrastructure.compilation.CodeCompilationService;
+import com.example.gitreview.infrastructure.compilation.CompilationResult;
 import com.example.gitreview.infrastructure.git.GitOperationPort;
+import com.example.gitreview.infrastructure.git.WorkflowGitService;
 import com.example.gitreview.infrastructure.parser.TaskListParser;
+import com.example.gitreview.infrastructure.workspace.TempWorkspaceManager;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -21,6 +28,7 @@ import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.io.File;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
@@ -54,8 +62,26 @@ public class WorkflowApplicationService {
     @Autowired
     private TaskListParser taskListParser;
 
+    @Autowired
+    private ClaudeCodePort claudeCodePort;
+
+    @Autowired
+    private CodeCompilationService compilationService;
+
+    @Autowired
+    private WorkflowGitService workflowGitService;
+
+    @Autowired
+    private TempWorkspaceManager tempWorkspaceManager;
+
     @Value("${workflow.prompts.file:workflow-prompts.properties}")
     private String promptsFile;
+
+    @Value("${workflow.branch.prefix:feature/workflow-}")
+    private String branchPrefix;
+
+    @Value("${workflow.compilation.max-retries:10}")
+    private int maxCompilationRetries;
 
     /**
      * 创建工作流
@@ -66,10 +92,23 @@ public class WorkflowApplicationService {
     public Long createWorkflow(CreateWorkflowRequest request) {
         logger.info("创建工作流: {}, 仓库ID: {}", request.getName(), request.getRepositoryId());
 
+        CodeStyleConfig codeStyleConfig = null;
+        if (request.getArchitecture() != null) {
+            codeStyleConfig = new CodeStyleConfig(
+                request.getArchitecture(),
+                request.getCodingStyle(),
+                request.getNamingConvention(),
+                request.getCommentLanguage(),
+                request.getMaxMethodLines(),
+                request.getMaxParameters()
+            );
+        }
+
         DevelopmentWorkflow workflow = DevelopmentWorkflow.create(
                 request.getName(),
                 request.getRepositoryId(),
-                request.getCreatedBy()
+                request.getCreatedBy(),
+                codeStyleConfig
         );
 
         DevelopmentWorkflow savedWorkflow = workflowRepository.save(workflow);
@@ -425,11 +464,29 @@ public class WorkflowApplicationService {
     public void startCodeGeneration(Long workflowId) {
         logger.info("开始代码生成，工作流ID: {}", workflowId);
 
+        File repoDir = null;
+
         try {
             DevelopmentWorkflow workflow = loadWorkflow(workflowId);
 
             workflow.startCodeGeneration();
             workflowRepository.save(workflow);
+
+            // TODO: 后续需要实现完整的Repository对象和GitOperationPort接口
+            // 暂时使用简化逻辑，直接创建临时工作目录
+            logger.info("创建临时工作空间，工作流ID: {}", workflowId);
+            repoDir = tempWorkspaceManager.createWorkspace("workflow-" + workflowId);
+
+            // TODO: 后续需要实现完整的Git克隆逻辑
+            // gitOperationPort.cloneRepository(...);
+            logger.warn("Git克隆功能暂未完全实现，跳过克隆步骤");
+
+            String branchName = branchPrefix + workflowId;
+            boolean branchCreated = workflowGitService.checkoutBranch(repoDir, branchName);
+
+            if (!branchCreated) {
+                throw new RuntimeException("创建工作分支失败: " + branchName);
+            }
 
             TaskList taskList = workflow.getTaskList();
             List<Task> allTasks = taskList.getTasks();
@@ -453,7 +510,39 @@ public class WorkflowApplicationService {
                     try {
                         logger.info("开始执行任务: {} - {}", task.getId(), task.getTitle());
 
-                        String generatedCode = generateCodeForTask(task, workflow);
+                        String taskDescription = buildTaskDescription(task);
+                        String techDesign = workflow.getTechnicalDesign().getContent();
+                        String contextCode = extractCodeContext(task, workflow);
+
+                        ClaudeCodeResult codeResult = claudeCodePort.generateCode(
+                            repoDir, taskDescription, techDesign, contextCode
+                        );
+
+                        if (!codeResult.isSuccess()) {
+                            throw new RuntimeException("代码生成失败: " + codeResult.getMessage());
+                        }
+
+                        logger.info("代码生成成功，修改文件: {}", codeResult.getModifiedFiles());
+
+                        CompilationResult compileResult = compileAndTestWithRetry(
+                            repoDir, taskDescription, task
+                        );
+
+                        if (!compileResult.isSuccess()) {
+                            throw new RuntimeException("编译或测试失败（已重试" + maxCompilationRetries + "次）: " + compileResult.getMessage());
+                        }
+
+                        logger.info("编译和测试通过");
+
+                        boolean committed = workflowGitService.commitTaskCode(
+                            repoDir, task.getId(), task.getTitle()
+                        );
+
+                        if (!committed) {
+                            throw new RuntimeException("Git 提交失败");
+                        }
+
+                        String generatedCode = String.join("\n", codeResult.getModifiedFiles());
 
                         workflow.completeTask(task.getId(), generatedCode);
                         workflowRepository.save(workflow);
@@ -489,7 +578,11 @@ public class WorkflowApplicationService {
 
             workflow = loadWorkflow(workflowId);
             if (workflow.getTaskList().getProgress() == 100) {
-                logger.info("所有任务已完成，工作流ID: {}", workflowId);
+                logger.info("所有任务已完成，推送到远程仓库，工作流ID: {}", workflowId);
+
+                workflowGitService.pushToRemote(repoDir, "origin", branchName);
+
+                logger.info("工作流完成，分支: {}", branchName);
             } else {
                 logger.warn("代码生成未完全完成，工作流ID: {}, 进度: {}%",
                         workflowId, workflow.getTaskList().getProgress());
@@ -498,31 +591,15 @@ public class WorkflowApplicationService {
         } catch (Exception e) {
             logger.error("代码生成失败，工作流ID: {}", workflowId, e);
             markWorkflowAsFailed(workflowId, "代码生成失败: " + e.getMessage());
+        } finally {
+            if (repoDir != null) {
+                try {
+                    tempWorkspaceManager.cleanupWorkspace(repoDir);
+                } catch (Exception e) {
+                    logger.error("清理工作空间失败: {}", repoDir.getAbsolutePath(), e);
+                }
+            }
         }
-    }
-
-    /**
-     * 为单个任务生成代码
-     *
-     * @param task     任务
-     * @param workflow 工作流
-     * @return 生成的代码
-     */
-    private String generateCodeForTask(Task task, DevelopmentWorkflow workflow) {
-        logger.debug("为任务生成代码: {} - {}", task.getId(), task.getTitle());
-
-        String taskDescription = buildTaskDescription(task);
-
-        String codeContext = extractCodeContext(task, workflow);
-
-        String prompt = buildCodeGenerationPrompt(taskDescription, codeContext);
-
-        logger.debug("调用Claude生成代码，任务: {}", task.getId());
-        String generatedCode = claudeQueryPort.query(prompt).getOutput();
-
-        logger.debug("代码生成完成，任务: {}, 代码长度: {}", task.getId(), generatedCode.length());
-
-        return generatedCode;
     }
 
     /**
@@ -580,25 +657,47 @@ public class WorkflowApplicationService {
     }
 
     /**
-     * 构建代码生成提示词
+     * 编译和测试，失败时自动修复并重试
+     *
+     * @param repoDir 仓库目录
+     * @param taskDescription 任务描述
+     * @param task 任务对象
+     * @return 编译结果
      */
-    private String buildCodeGenerationPrompt(String taskDescription, String codeContext) {
-        return String.format(
-                "你是一个资深开发工程师。\n" +
-                        "根据以下任务描述和代码上下文，生成完整的代码实现。\n\n" +
-                        "要求：\n" +
-                        "1. 遵循现有代码风格\n" +
-                        "2. 遵循DDD六边形架构分层\n" +
-                        "3. 包含必要的Javadoc注释（@author zhourui(V33215020) @since 2025/10/04）\n" +
-                        "4. 符合Java最佳实践和Alibaba-P3C规范\n" +
-                        "5. 仅返回完整的代码，不要额外说明\n" +
-                        "6. 方法长度不超过50行，参数不超过5个\n" +
-                        "7. 使用中文注释\n\n" +
-                        "任务描述：\n%s\n\n" +
-                        "代码上下文：\n%s\n\n" +
-                        "请直接输出完整的Java代码。",
-                taskDescription, codeContext
-        );
+    private CompilationResult compileAndTestWithRetry(File repoDir, String taskDescription, Task task) {
+        CompilationResult result = compilationService.compileAndTest(repoDir);
+
+        int retryCount = 0;
+
+        while (!result.isSuccess() && retryCount < maxCompilationRetries) {
+            retryCount++;
+
+            logger.warn("编译或测试失败（第{}次），尝试自动修复", retryCount);
+
+            String errorType = result.getMessage().contains("编译") ? "COMPILATION" : "TEST";
+
+            ClaudeCodeResult fixResult = claudeCodePort.fixCompilationError(
+                repoDir,
+                errorType,
+                result.getOutput(),
+                taskDescription
+            );
+
+            if (!fixResult.isSuccess()) {
+                logger.error("自动修复失败（第{}次）: {}", retryCount, fixResult.getMessage());
+                break;
+            }
+
+            logger.info("自动修复完成（第{}次），重新编译测试", retryCount);
+
+            result = compilationService.compileAndTest(repoDir);
+
+            if (result.isSuccess()) {
+                logger.info("修复成功，编译和测试通过（第{}次重试）", retryCount);
+            }
+        }
+
+        return result;
     }
 
     private DevelopmentWorkflow loadWorkflow(Long workflowId) {

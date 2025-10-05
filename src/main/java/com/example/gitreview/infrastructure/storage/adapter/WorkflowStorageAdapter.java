@@ -67,16 +67,15 @@ public class WorkflowStorageAdapter implements WorkflowRepository {
     }
 
     @Override
+    public void deleteById(Long id) {
+        logger.debug("Deleting DevelopmentWorkflow by ID: {}", id);
+        storageAdapter.deleteById(id);
+    }
+
     public List<DevelopmentWorkflow> findByRepositoryId(Long repositoryId) {
         logger.debug("Finding DevelopmentWorkflows by repositoryId: {}", repositoryId);
         return storageAdapter.findAll().stream()
                 .filter(workflow -> repositoryId.equals(workflow.getRepositoryId()))
                 .collect(Collectors.toList());
-    }
-
-    @Override
-    public void delete(Long id) {
-        logger.debug("Deleting DevelopmentWorkflow by ID: {}", id);
-        storageAdapter.deleteById(id);
     }
 }

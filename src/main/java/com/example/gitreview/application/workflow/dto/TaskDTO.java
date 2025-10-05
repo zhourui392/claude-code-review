@@ -3,13 +3,12 @@ package com.example.gitreview.application.workflow.dto;
 import java.util.List;
 
 /**
- * 任务响应DTO
+ * Task DTO.
  *
  * @author zhourui(V33215020)
- * @since 2025/10/04
+ * @since 2025/10/05
  */
 public class TaskDTO {
-
     private String id;
     private String title;
     private String description;
@@ -17,11 +16,9 @@ public class TaskDTO {
     private List<String> dependencies;
     private String generatedCode;
 
-    public TaskDTO() {
-    }
+    public TaskDTO() {}
 
-    public TaskDTO(String id, String title, String description, String status,
-                   List<String> dependencies, String generatedCode) {
+    public TaskDTO(String id, String title, String description, String status, List<String> dependencies, String generatedCode) {
         this.id = id;
         this.title = title;
         this.description = description;

@@ -3,13 +3,12 @@ package com.example.gitreview.application.workflow.dto;
 import java.time.LocalDateTime;
 
 /**
- * 工作流状态响应DTO
+ * Workflow status DTO.
  *
  * @author zhourui(V33215020)
- * @since 2025/10/04
+ * @since 2025/10/05
  */
 public class WorkflowStatusDTO {
-
     private Long id;
     private String name;
     private String status;
@@ -17,11 +16,9 @@ public class WorkflowStatusDTO {
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 
-    public WorkflowStatusDTO() {
-    }
+    public WorkflowStatusDTO() {}
 
-    public WorkflowStatusDTO(Long id, String name, String status, int progress,
-                             LocalDateTime createdAt, LocalDateTime updatedAt) {
+    public WorkflowStatusDTO(Long id, String name, String status, int progress, LocalDateTime createdAt, LocalDateTime updatedAt) {
         this.id = id;
         this.name = name;
         this.status = status;

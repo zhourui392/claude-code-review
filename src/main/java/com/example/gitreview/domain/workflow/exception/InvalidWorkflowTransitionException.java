@@ -3,20 +3,20 @@ package com.example.gitreview.domain.workflow.exception;
 import com.example.gitreview.domain.workflow.model.WorkflowStatus;
 
 /**
- * 非法工作流状态转换异常
+ * Exception thrown when workflow transition is invalid.
  *
  * @author zhourui(V33215020)
- * @since 2025/10/04
+ * @since 2025/10/05
  */
 public class InvalidWorkflowTransitionException extends RuntimeException {
 
     private final WorkflowStatus from;
     private final WorkflowStatus to;
 
-    public InvalidWorkflowTransitionException(WorkflowStatus from, WorkflowStatus to) {
-        super(String.format("无法从状态 %s 转换到 %s", from.getDescription(), to.getDescription()));
-        this.from = from;
-        this.to = to;
+    public InvalidWorkflowTransitionException(WorkflowStatus currentStatus, WorkflowStatus targetStatus) {
+        super(String.format("Invalid workflow transition from %s to %s", currentStatus, targetStatus));
+        this.from = currentStatus;
+        this.to = targetStatus;
     }
 
     public WorkflowStatus getFrom() {

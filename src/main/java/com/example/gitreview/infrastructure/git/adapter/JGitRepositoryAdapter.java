@@ -494,14 +494,16 @@ public class JGitRepositoryAdapter implements GitOperationPort {
             } catch (org.eclipse.jgit.api.errors.InvalidRemoteException e) {
                 logger.error("Push rejected - invalid remote: {}", e.getMessage());
                 throw new IOException("Push failed: invalid remote configuration", e);
-            } catch (org.eclipse.jgit.errors.TransportException e) {
+            } catch (GitAPIException e) {
+                // 处理包括TransportException在内的所有GitAPIException
                 if (e.getMessage() != null &&
                     (e.getMessage().contains("rejected") || e.getMessage().contains("non-fast-forward"))) {
                     logger.error("Push rejected - remote has newer commits. Please pull first: {}", e.getMessage());
                     throw new IOException("Push rejected: remote branch has been updated. " +
                             "Please pull the latest changes and try again", e);
                 }
-                throw e;
+                logger.error("Push error: {}", e.getMessage());
+                throw new IOException("Push failed: " + e.getMessage(), e);
             }
 
         } catch (GitAPIException | IOException e) {

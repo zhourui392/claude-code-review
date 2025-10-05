@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 项目概述
 
-基于 Spring Boot 3.2 + Claude CLI 的自动化代码审查与测试生成服务。采用 DDD 六边形架构，提供代码审查和单元测试自动生成两大核心功能。
+基于 Spring Boot 3.2 + Claude CLI 的自动化代码审查与测试生成服务。采用 DDD 六边形架构，提供代码审查、测试生成、开发工作流三大核心功能。
 
 ## 构建和运行命令
 
@@ -49,16 +49,19 @@ mvn test -Dtest=ClassName#methodName    # 运行特定测试方法
   - `CodeReview`：代码审查聚合，管理审查会话、策略、状态流转
   - `Repository`：Git 仓库聚合，封装凭据验证、URL 规则
   - `TestSuite`：测试套件聚合，管理测试用例生成与验证
+  - `DevelopmentWorkflow`：开发工作流聚合，管理需求到代码的完整流程与状态机
 
 - **领域服务 (Domain Services)**：
   - `CodeReviewDomainService`：审查策略执行、结果验证
   - `RepositoryDomainService`：仓库访问验证、分支校验
   - `TestGenerationDomainService`：测试生成规则、质量门禁
+  - `WorkflowDomainService`：工作流状态流转、任务编排
 
 - **值对象 (Value Objects)**：
   - `CodeDiff`、`ReviewResult`、`ReviewStrategy`
   - `GitUrl`、`Credential`、`Branch`
   - `JavaClass`、`TestTemplate`、`TestMethod`
+  - `Specification`、`TechnicalDesign`、`TaskList`、`Task`
 
 #### 2. Application Layer (应用层)
 应用服务编排领域对象与基础设施端口，不包含业务规则：
@@ -67,11 +70,13 @@ mvn test -Dtest=ClassName#methodName    # 运行特定测试方法
   - `CodeReviewApplicationService`：协调审查流程（仓库获取 → Diff 生成 → Claude 调用 → 结果存储）
   - `GitRepositoryApplicationService`：仓库管理流程编排
   - `TestGenerationApplicationService`：测试生成流程编排（代码解析 → 上下文提取 → Claude 生成 → 编译验证）
+  - `WorkflowApplicationService`：工作流全流程编排（规格生成 → 技术方案 → 任务列表 → 代码生成）
 
 - **API Controllers**：
   - `ReviewController`：代码审查接口（支持快速/标准/深度审查模式）
   - `GitRepositoryController`、`GitOperationController`：仓库管理
   - `TestGenerationController`：测试生成接口
+  - `WorkflowController`：开发工作流接口
 
 - **DTO/Assembler**：DTO 转换与领域对象组装
 
@@ -86,7 +91,7 @@ mvn test -Dtest=ClassName#methodName    # 运行特定测试方法
 - **适配器 (Adapters)**：
   - `ClaudeCliAdapter`：Claude CLI 进程调用实现（Windows 兼容，支持管道/文件输入）
   - `JGitRepositoryAdapter`：JGit 实现（clone/diff/分支操作，优先 ls-remote）
-  - `GitRepositoryStorageAdapter`、`CodeReviewStorageAdapter`、`TestSuiteStorageAdapter`：JSON 文件存储实现
+  - `GitRepositoryStorageAdapter`、`CodeReviewStorageAdapter`、`TestSuiteStorageAdapter`、`WorkflowStorageAdapter`：JSON 文件存储实现
 
 - **核心基础设施服务**：
   - `CodeContextExtractor`：使用 JavaParser 提取类/方法/依赖上下文
@@ -133,6 +138,95 @@ test.validation.compile-timeout=30000       # 编译超时
 - `POST /api/test-generation/generate` - 生成测试
 - `GET /api/test-generation/{suiteId}` - 查询测试套件状态
 
+### 3. 开发工作流 (Development Workflow)
+**流程**：需求描述 → 规格文档生成 → 技术方案设计 → 任务列表拆解 → **Claude Code CLI 自动生成代码并提交**
+
+**核心特性**：
+- ✅ **可配置代码架构和风格**：支持自定义架构模式、编码规范、命名规则等
+- ✅ **自动编译错误修复**：最多10次智能修复重试
+- ✅ **Git自动提交**：每个任务完成自动提交，保留完整开发历史
+
+**工作流状态机**：
+```
+DRAFT → SPEC_GENERATING → SPEC_GENERATED (20%)
+      → TECH_DESIGN_GENERATING → TECH_DESIGN_GENERATED → TECH_DESIGN_APPROVED (40%)
+      → TASK_LIST_GENERATING → TASK_LIST_GENERATED (60%)
+      → CODE_GENERATING → COMPLETED (100%)
+```
+
+**代码生成执行流程（新）**：
+1. 克隆仓库到临时目录 (`TempWorkspaceManager`)
+2. 创建工作分支 (`feature/workflow-{id}`)
+3. 按依赖顺序遍历任务列表：
+   - 调用 **Claude Code CLI** 在仓库目录中生成代码
+   - 执行 `mvn clean compile` 编译验证
+   - 执行 `mvn test` 运行单元测试
+   - **如果编译或测试失败**：
+     - 将错误信息传递给 Claude Code CLI
+     - Claude 自动分析并修复代码
+     - 重新编译测试
+     - 最多重试 3 次（可配置）
+   - 验证通过后 `git commit` 提交任务代码
+   - 更新任务状态为 `COMPLETED`
+4. 所有任务完成后推送到远程分支 (`git push origin feature/workflow-{id}`)
+5. 清理临时工作空间
+
+**核心组件**：
+- `CodeStyleConfig` 值对象：封装可配置的架构风格规则
+- `ClaudeCodePort` / `ClaudeCodeCliAdapter`：调用 Claude Code CLI 在实际仓库生成代码 + **自动修复编译错误**
+- `CodeCompilationService`：Maven 编译和测试验证
+- `WorkflowGitService`：自动 Git 提交与分支管理
+- `DevelopmentWorkflow` 聚合根：封装状态流转规则与进度计算
+- `TaskListParser`：解析 Claude 生成的任务列表（Markdown 格式）
+
+**代码风格配置参数**（创建工作流时可在页面配置）：
+
+**前端界面配置**：
+- 架构模式：DDD六边形 / MVC三层 / 分层架构 / 微服务 / Clean Architecture
+- 编码规范：Alibaba-P3C / Google Java Style / Spring Boot最佳实践 / 阿里微服务规范
+- 命名规范：驼峰命名法 / 下划线命名法
+- 注释语言：中文 / 英文
+- 方法最大行数：10-100（默认50）
+- 参数最大个数：1-10（默认5）
+
+**API 请求示例**：
+```json
+POST /api/workflow
+{
+  "name": "用户管理模块",
+  "repositoryId": 1,
+  "createdBy": "user",
+  "architecture": "MVC 三层架构（Controller/Service/DAO）",
+  "codingStyle": "Google Java Style Guide",
+  "namingConvention": "驼峰命名法",
+  "commentLanguage": "英文",
+  "maxMethodLines": 30,
+  "maxParameters": 3
+}
+```
+未配置时使用默认值（DDD六边形架构 + Alibaba-P3C）
+
+**配置**：
+```properties
+claude.code.timeout=600000              # Claude Code CLI 超时（10分钟）
+compilation.timeout=300000              # 编译超时（5分钟）
+test.timeout=600000                     # 测试超时（10分钟）
+workflow.branch.prefix=feature/workflow-  # 工作分支前缀
+workflow.compilation.max-retries=10     # 编译失败最大重试次数（默认10次）
+```
+
+**API**：
+- `POST /api/workflow` - 创建工作流
+- `GET /api/workflow` - 获取所有工作流
+- `POST /api/workflow/{id}/spec/generate` - 生成规格文档
+- `POST /api/workflow/{id}/tech-design/generate` - 生成技术方案
+- `PUT /api/workflow/{id}/tech-design` - 更新技术方案
+- `POST /api/workflow/{id}/tech-design/approve` - 批准技术方案
+- `POST /api/workflow/{id}/tasklist/generate` - 生成任务列表
+- `POST /api/workflow/{id}/code-generation/start` - 开始代码生成
+- `GET /api/workflow/{id}/progress` - 查询进度
+- `POST /api/workflow/{id}/cancel` - 取消工作流
+
 ## 关键配置
 
 ### application.properties 核心配置
@@ -144,6 +238,7 @@ server.port=8080
 json.storage.repository.file=data/repositories.json
 json.storage.codereview.file=data/code-reviews.json
 json.storage.testsuite.file=data/test-suites.json
+json.storage.workflow.file=data/workflows.json
 
 # Claude CLI
 claude.command=claude
@@ -211,9 +306,35 @@ logging.level.com.example.gitreview.claude=DEBUG
 - `GET /api/test-generation/{suiteId}` - 查询测试套件
 - `GET /api/test-generation/{suiteId}/status` - 查询生成状态
 
+### 开发工作流 API
+- `POST /api/workflow` - 创建工作流
+- `GET /api/workflow` - 获取所有工作流
+- `GET /api/workflow/{id}/status` - 获取工作流状态
+- `GET /api/workflow/{id}/progress` - 获取工作流进度
+- `POST /api/workflow/{id}/spec/generate` - 生成规格文档
+- `GET /api/workflow/{id}/spec` - 获取规格文档
+- `POST /api/workflow/{id}/tech-design/generate` - 生成技术方案
+- `GET /api/workflow/{id}/tech-design` - 获取技术方案
+- `PUT /api/workflow/{id}/tech-design` - 更新技术方案
+- `POST /api/workflow/{id}/tech-design/approve` - 批准技术方案
+- `POST /api/workflow/{id}/tasklist/generate` - 生成任务列表
+- `GET /api/workflow/{id}/tasklist` - 获取任务列表
+- `POST /api/workflow/{id}/code-generation/start` - 开始代码生成
+- `POST /api/workflow/{id}/cancel` - 取消工作流
+
 ### 前端访问
 - 静态资源：http://localhost:8080/ （`src/main/resources/static/index.html`）
 - 使用 Vue.js 2 + Element UI + Axios
+
+**创建工作流页面功能**：
+1. 基本信息配置：工作流名称、仓库选择、PRD内容
+2. **代码风格配置**（可选）：
+   - 架构模式下拉选择（5种预设架构）
+   - 编码规范下拉选择（4种规范）
+   - 命名/注释偏好设置
+   - 代码质量参数调整（方法行数、参数个数）
+3. 一键创建并自动生成规格文档
+4. 实时进度轮询与状态展示
 
 ## 环境要求
 - JDK 17+

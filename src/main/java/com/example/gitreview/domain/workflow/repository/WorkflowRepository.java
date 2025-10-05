@@ -6,48 +6,40 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * 工作流仓储接口
+ * Workflow repository interface.
  *
  * @author zhourui(V33215020)
- * @since 2025/10/04
+ * @since 2025/10/05
  */
 public interface WorkflowRepository {
-
+    
     /**
-     * 保存或更新工作流
+     * Save workflow.
      *
-     * @param workflow 工作流聚合根
-     * @return 保存后的工作流（包含生成的ID）
+     * @param workflow workflow to save
+     * @return saved workflow
      */
     DevelopmentWorkflow save(DevelopmentWorkflow workflow);
-
+    
     /**
-     * 根据ID查找工作流
+     * Find workflow by ID.
      *
-     * @param id 工作流ID
-     * @return 工作流对象
+     * @param id workflow ID
+     * @return workflow if found
      */
     Optional<DevelopmentWorkflow> findById(Long id);
-
+    
     /**
-     * 查找所有工作流
+     * Find all workflows.
      *
-     * @return 工作流列表
+     * @return all workflows
      */
     List<DevelopmentWorkflow> findAll();
-
+    
     /**
-     * 根据仓库ID查找工作流
+     * Delete workflow by ID.
      *
-     * @param repositoryId 仓库ID
-     * @return 工作流列表
+     * @param id workflow ID
      */
-    List<DevelopmentWorkflow> findByRepositoryId(Long repositoryId);
-
-    /**
-     * 删除工作流
-     *
-     * @param id 工作流ID
-     */
-    void delete(Long id);
+    void deleteById(Long id);
 }

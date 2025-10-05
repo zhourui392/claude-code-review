@@ -20,6 +20,13 @@ public class CreateWorkflowRequest {
     @NotEmpty(message = "创建者不能为空")
     private String createdBy;
 
+    private String architecture;
+    private String codingStyle;
+    private String namingConvention;
+    private String commentLanguage;
+    private Integer maxMethodLines;
+    private Integer maxParameters;
+
     public CreateWorkflowRequest() {
     }
 
@@ -51,5 +58,53 @@ public class CreateWorkflowRequest {
 
     public void setCreatedBy(String createdBy) {
         this.createdBy = createdBy;
+    }
+
+    public String getArchitecture() {
+        return architecture;
+    }
+
+    public void setArchitecture(String architecture) {
+        this.architecture = architecture;
+    }
+
+    public String getCodingStyle() {
+        return codingStyle;
+    }
+
+    public void setCodingStyle(String codingStyle) {
+        this.codingStyle = codingStyle;
+    }
+
+    public String getNamingConvention() {
+        return namingConvention;
+    }
+
+    public void setNamingConvention(String namingConvention) {
+        this.namingConvention = namingConvention;
+    }
+
+    public String getCommentLanguage() {
+        return commentLanguage;
+    }
+
+    public void setCommentLanguage(String commentLanguage) {
+        this.commentLanguage = commentLanguage;
+    }
+
+    public Integer getMaxMethodLines() {
+        return maxMethodLines;
+    }
+
+    public void setMaxMethodLines(Integer maxMethodLines) {
+        this.maxMethodLines = maxMethodLines;
+    }
+
+    public Integer getMaxParameters() {
+        return maxParameters;
+    }
+
+    public void setMaxParameters(Integer maxParameters) {
+        this.maxParameters = maxParameters;
     }
 }

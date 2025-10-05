@@ -1,26 +1,29 @@
 package com.example.gitreview.domain.workflow.model;
 
 /**
- * 任务状态枚举
+ * Task status enumeration.
  *
  * @author zhourui(V33215020)
- * @since 2025/10/04
+ * @since 2025/10/05
  */
 public enum TaskStatus {
+    /**
+     * Task is pending execution
+     */
+    PENDING,
 
-    PENDING("待执行"),
-    IN_PROGRESS("执行中"),
-    COMPLETED("已完成"),
-    FAILED("失败"),
-    SKIPPED("跳过");
+    /**
+     * Task is currently in progress
+     */
+    IN_PROGRESS,
 
-    private final String description;
+    /**
+     * Task completed successfully
+     */
+    COMPLETED,
 
-    TaskStatus(String description) {
-        this.description = description;
-    }
-
-    public String getDescription() {
-        return description;
-    }
+    /**
+     * Task execution failed
+     */
+    FAILED
 }

@@ -3,24 +3,21 @@ package com.example.gitreview.application.workflow.dto;
 import java.time.LocalDateTime;
 
 /**
- * 技术方案响应DTO
+ * Technical design DTO.
  *
  * @author zhourui(V33215020)
- * @since 2025/10/04
+ * @since 2025/10/05
  */
 public class TechnicalDesignDTO {
-
     private String content;
     private int version;
     private boolean approved;
     private LocalDateTime createdAt;
     private LocalDateTime approvedAt;
 
-    public TechnicalDesignDTO() {
-    }
+    public TechnicalDesignDTO() {}
 
-    public TechnicalDesignDTO(String content, int version, boolean approved,
-                              LocalDateTime createdAt, LocalDateTime approvedAt) {
+    public TechnicalDesignDTO(String content, int version, boolean approved, LocalDateTime createdAt, LocalDateTime approvedAt) {
         this.content = content;
         this.version = version;
         this.approved = approved;

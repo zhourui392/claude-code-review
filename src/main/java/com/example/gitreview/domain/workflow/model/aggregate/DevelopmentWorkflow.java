@@ -2,6 +2,7 @@ package com.example.gitreview.domain.workflow.model.aggregate;
 
 import com.example.gitreview.domain.workflow.exception.InvalidWorkflowTransitionException;
 import com.example.gitreview.domain.workflow.model.WorkflowStatus;
+import com.example.gitreview.domain.workflow.model.valueobject.CodeStyleConfig;
 import com.example.gitreview.domain.workflow.model.valueobject.Specification;
 import com.example.gitreview.domain.workflow.model.valueobject.Task;
 import com.example.gitreview.domain.workflow.model.valueobject.TaskList;
@@ -31,6 +32,7 @@ public class DevelopmentWorkflow {
     private TechnicalDesign technicalDesign;
     private TaskList taskList;
     private List<Task> codeGenerationTasks;
+    private CodeStyleConfig codeStyleConfig;
 
     private int progress;
     private String currentStage;
@@ -40,6 +42,10 @@ public class DevelopmentWorkflow {
     }
 
     public static DevelopmentWorkflow create(String name, Long repositoryId, String createdBy) {
+        return create(name, repositoryId, createdBy, null);
+    }
+
+    public static DevelopmentWorkflow create(String name, Long repositoryId, String createdBy, CodeStyleConfig codeStyleConfig) {
         DevelopmentWorkflow workflow = new DevelopmentWorkflow();
         workflow.name = name;
         workflow.repositoryId = repositoryId;
@@ -49,6 +55,7 @@ public class DevelopmentWorkflow {
         workflow.createdBy = createdBy;
         workflow.progress = 0;
         workflow.currentStage = "草稿";
+        workflow.codeStyleConfig = codeStyleConfig != null ? codeStyleConfig : CodeStyleConfig.createDefault();
         return workflow;
     }
 
@@ -252,6 +259,10 @@ public class DevelopmentWorkflow {
 
     public List<Task> getCodeGenerationTasks() {
         return codeGenerationTasks;
+    }
+
+    public CodeStyleConfig getCodeStyleConfig() {
+        return codeStyleConfig;
     }
 
     public int getProgress() {

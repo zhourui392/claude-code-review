@@ -1,0 +1,1668 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Git代码Review服务</title>
+    <link href="https://unpkg.com/element-ui/lib/theme-chalk/index.css" rel="stylesheet">
+    <script src="https://unpkg.com/vue@2.6.14/dist/vue.js"></script>
+    <script src="https://unpkg.com/element-ui/lib/index.js"></script>
+    <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <style>
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .section {
+            margin-bottom: 30px;
+        }
+        .review-result {
+            background: #ffffff;
+            padding: 20px;
+            border-radius: 4px;
+            margin-top: 20px;
+            border: 1px solid #e6e6e6;
+        }
+        /* Markdown 渲染样式 */
+        .review-result h1 {
+            font-size: 28px;
+            border-bottom: 2px solid #409eff;
+            padding-bottom: 10px;
+            margin-top: 20px;
+            margin-bottom: 15px;
+        }
+        .review-result h2 {
+            font-size: 24px;
+            border-bottom: 1px solid #dcdfe6;
+            padding-bottom: 8px;
+            margin-top: 18px;
+            margin-bottom: 12px;
+        }
+        .review-result h3 {
+            font-size: 20px;
+            margin-top: 16px;
+            margin-bottom: 10px;
+            color: #303133;
+        }
+        .review-result h4 {
+            font-size: 18px;
+            margin-top: 14px;
+            margin-bottom: 8px;
+            color: #606266;
+        }
+        .review-result p {
+            margin: 10px 0;
+            line-height: 1.6;
+            color: #606266;
+        }
+        .review-result ul, .review-result ol {
+            margin: 10px 0;
+            padding-left: 30px;
+        }
+        .review-result li {
+            margin: 5px 0;
+            line-height: 1.5;
+        }
+        .review-result code {
+            background: #f5f7fa;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-family: 'Courier New', Consolas, Monaco, monospace;
+            font-size: 13px;
+            color: #e83e8c;
+        }
+        .review-result pre {
+            background: #282c34;
+            color: #abb2bf;
+            padding: 15px;
+            border-radius: 4px;
+            overflow-x: auto;
+            margin: 15px 0;
+        }
+        .review-result pre code {
+            background: none;
+            color: #abb2bf;
+            padding: 0;
+        }
+        .review-result blockquote {
+            border-left: 4px solid #409eff;
+            padding-left: 15px;
+            margin: 15px 0;
+            color: #909399;
+            background: #f5f7fa;
+            padding: 10px 15px;
+            border-radius: 0 4px 4px 0;
+        }
+        .review-result table {
+            border-collapse: collapse;
+            width: 100%;
+            margin: 15px 0;
+        }
+        .review-result table th {
+            background: #f5f7fa;
+            padding: 10px;
+            border: 1px solid #dcdfe6;
+            font-weight: bold;
+        }
+        .review-result table td {
+            padding: 10px;
+            border: 1px solid #dcdfe6;
+        }
+        .review-result a {
+            color: #409eff;
+            text-decoration: none;
+        }
+        .review-result a:hover {
+            text-decoration: underline;
+        }
+        .review-result hr {
+            border: none;
+            border-top: 1px solid #dcdfe6;
+            margin: 20px 0;
+        }
+        .review-result strong {
+            font-weight: 600;
+            color: #303133;
+        }
+        .review-result em {
+            font-style: italic;
+            color: #606266;
+        }
+        .test-progress {
+            margin-top: 30px;
+            padding: 20px;
+            background: #f9f9f9;
+            border-radius: 8px;
+            border: 1px solid #e6e6e6;
+        }
+        .test-result {
+            margin-top: 30px;
+            padding: 20px;
+            background: #fff;
+            border-radius: 8px;
+            border: 1px solid #e6e6e6;
+        }
+        .code-container {
+            border: 1px solid #e6e6e6;
+            border-radius: 4px;
+            overflow: hidden;
+        }
+        .code-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 15px;
+            background: #f8f8f8;
+            border-bottom: 1px solid #e6e6e6;
+            font-weight: bold;
+        }
+        .code-content {
+            background: #ffffff;
+            padding: 15px;
+            margin: 0;
+            max-height: 600px;
+            overflow-y: auto;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            font-size: 14px;
+            line-height: 1.6;
+        }
+        .test-output {
+            margin-top: 15px;
+            padding: 15px;
+            background: #f8f8f8;
+            border-radius: 4px;
+            border: 1px solid #e6e6e6;
+        }
+        .test-output pre {
+            margin: 0;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            line-height: 1.3;
+            white-space: pre-wrap;
+        }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <div class="container">
+            <div class="header">
+                <h1>Git代码Review服务</h1>
+                <p>使用Claude AI进行自动化代码审查</p>
+            </div>
+
+            <el-tabs type="border-card" v-model="activeTab">
+                <el-tab-pane label="仓库管理" name="repos">
+                    <div class="section">
+                        <h3>Git仓库配置</h3>
+                        <el-button type="primary" @click="showAddDialog = true">添加仓库</el-button>
+                        
+                        <el-table :data="repositories" style="width: 100%; margin-top: 20px;">
+                            <el-table-column prop="name" label="仓库名称"></el-table-column>
+                            <el-table-column prop="repositoryUrl" label="仓库地址"></el-table-column>
+                            <el-table-column prop="description" label="描述"></el-table-column>
+                            <el-table-column label="操作" width="200">
+                                <template slot-scope="scope">
+                                    <el-button size="mini" @click="testConnection(scope.row)">测试连接</el-button>
+                                    <el-button size="mini" type="danger" @click="deleteRepository(scope.row.id)">删除</el-button>
+                                </template>
+                            </el-table-column>
+                        </el-table>
+                    </div>
+                </el-tab-pane>
+
+                <el-tab-pane label="代码Review">
+                    <div class="section">
+                        <h3>代码审查</h3>
+                        
+                        <el-form :model="reviewForm" label-width="120px">
+                            <el-form-item label="选择仓库">
+                                <el-select v-model="reviewForm.repositoryId" placeholder="请选择仓库" @change="loadBranches">
+                                    <el-option v-for="repo in repositories" 
+                                               :key="repo.id" 
+                                               :label="repo.name" 
+                                               :value="repo.id">
+                                    </el-option>
+                                </el-select>
+                                <el-button style="margin-left: 10px" @click="loadRemoteBranches" :loading="remoteLoading">
+                                    从远程拉取分支
+                                </el-button>
+                            </el-form-item>
+
+                            <el-form-item label="基础分支">
+                                <el-select v-model="reviewForm.baseBranch" placeholder="请选择基础分支" filterable allow-create>
+                                    <el-option v-for="branch in branches" 
+                                               :key="'base-' + branch" 
+                                               :label="branch" 
+                                               :value="branch">
+                                    </el-option>
+                                </el-select>
+                            </el-form-item>
+                            
+                            <el-form-item label="目标分支">
+                                <el-select v-model="reviewForm.targetBranch" placeholder="请选择目标分支" filterable allow-create>
+                                    <el-option v-for="branch in branches"
+                                               :key="'target-' + branch"
+                                               :label="branch"
+                                               :value="branch">
+                                    </el-option>
+                                </el-select>
+                            </el-form-item>
+
+                            <el-form-item label="审查模式">
+                                <el-select v-model="reviewForm.mode" placeholder="请选择审查模式">
+                                    <el-option label="⚡ 快速审查 (2-5分钟)" value="quick">
+                                        <span style="float: left">⚡ 快速审查</span>
+                                        <span style="float: right; color: #8492a6; font-size: 13px">2-5分钟</span>
+                                    </el-option>
+                                    <el-option label="📋 标准审查 (5-10分钟)" value="standard">
+                                        <span style="float: left">📋 标准审查</span>
+                                        <span style="float: right; color: #8492a6; font-size: 13px">5-10分钟</span>
+                                    </el-option>
+                                    <el-option label="🔍 深度审查 (10-20分钟)" value="deep">
+                                        <span style="float: left">🔍 深度审查</span>
+                                        <span style="float: right; color: #8492a6; font-size: 13px">10-20分钟</span>
+                                    </el-option>
+                                    <el-option label="🔒 安全审查 (5-10分钟)" value="security">
+                                        <span style="float: left">🔒 安全审查</span>
+                                        <span style="float: right; color: #8492a6; font-size: 13px">5-10分钟</span>
+                                    </el-option>
+                                    <el-option label="⚡ 性能审查 (5-10分钟)" value="performance">
+                                        <span style="float: left">⚡ 性能审查</span>
+                                        <span style="float: right; color: #8492a6; font-size: 13px">5-10分钟</span>
+                                    </el-option>
+                                    <el-option label="🏗️ 架构审查 (5-10分钟)" value="architecture">
+                                        <span style="float: left">🏗️ 架构审查</span>
+                                        <span style="float: right; color: #8492a6; font-size: 13px">5-10分钟</span>
+                                    </el-option>
+                                </el-select>
+                                <el-alert
+                                    v-if="reviewForm.mode"
+                                    :title="getModeDescription(reviewForm.mode)"
+                                    type="info"
+                                    :closable="false"
+                                    style="margin-top: 10px">
+                                </el-alert>
+                            </el-form-item>
+
+                            <el-form-item>
+                                <el-button type="primary" @click="startReview" :loading="reviewLoading">
+                                    开始Review
+                                </el-button>
+                            </el-form-item>
+                        </el-form>
+
+                        <div v-if="reviewResult" class="review-result">
+                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+                                <h4 style="margin: 0;">Review结果：</h4>
+                                <el-button-group v-if="currentReviewId">
+                                    <el-button
+                                        size="small"
+                                        icon="el-icon-download"
+                                        @click="exportMarkdown"
+                                        :loading="exportLoading">
+                                        导出 Markdown
+                                    </el-button>
+                                    <el-button
+                                        size="small"
+                                        icon="el-icon-document"
+                                        @click="exportJson"
+                                        :loading="exportLoading">
+                                        导出 JSON
+                                    </el-button>
+                                </el-button-group>
+                            </div>
+                            <div v-html="renderedReviewResult"></div>
+                        </div>
+                    </div>
+                </el-tab-pane>
+
+                <el-tab-pane label="单元测试生成">
+                    <div class="section">
+                        <h3>智能单元测试生成</h3>
+
+                        <el-form :model="testGenForm" label-width="120px">
+                            <el-form-item label="选择仓库">
+                                <el-select v-model="testGenForm.repositoryId" placeholder="请选择仓库" @change="loadTestBranches">
+                                    <el-option v-for="repo in repositories"
+                                               :key="repo.id"
+                                               :label="repo.name"
+                                               :value="repo.id">
+                                    </el-option>
+                                </el-select>
+                            </el-form-item>
+
+                            <el-form-item label="分支">
+                                <el-select v-model="testGenForm.branch" placeholder="请选择分支" filterable allow-create>
+                                    <el-option v-for="branch in testBranches"
+                                               :key="'test-' + branch"
+                                               :label="branch"
+                                               :value="branch">
+                                    </el-option>
+                                </el-select>
+                            </el-form-item>
+
+                            <el-form-item label="Java类名">
+                                <el-input
+                                    type="textarea"
+                                    v-model="testGenForm.className"
+                                    :rows="3"
+                                    placeholder="例如: UserService 或 UserService,OrderService,ProductService (逗号分隔多个类)">
+                                </el-input>
+                                <div style="color: #909399; font-size: 12px; margin-top: 5px;">
+                                    支持输入多个类名，使用英文逗号分隔
+                                </div>
+                            </el-form-item>
+
+                            <el-form-item label="准入ID">
+                                <el-input v-model="testGenForm.gateId" placeholder="可选，未填写则从Git历史提取">
+                                    <template slot="prepend">Gate ID</template>
+                                </el-input>
+                                <div style="color: #909399; font-size: 12px; margin-top: 5px;">
+                                    如不填写，系统将自动从最近的Git提交历史中提取准入ID
+                                </div>
+                            </el-form-item>
+
+                            <el-form-item label="测试要求">
+                                <el-input
+                                    type="textarea"
+                                    v-model="testGenForm.requirement"
+                                    :rows="4"
+                                    placeholder="可选，输入对测试代码的特殊要求（如：需要测试边界条件、需要覆盖异常场景等）">
+                                </el-input>
+                                <div style="color: #909399; font-size: 12px; margin-top: 5px;">
+                                    可选填写，留空则使用默认的Mock测试标准（完美质量）
+                                </div>
+                            </el-form-item>
+
+                            <el-form-item>
+                                <el-button type="primary" @click="startTestGeneration" :loading="testGenLoading">
+                                    生成测试代码
+                                </el-button>
+                                <el-button @click="resetTestForm">重置</el-button>
+                            </el-form-item>
+                        </el-form>
+
+                        <!-- 进度显示 -->
+                        <div v-if="testGenProgress.show" class="test-progress">
+                            <h4>生成进度</h4>
+                            <el-steps :active="testGenProgress.currentStep" finish-status="success">
+                                <el-step title="分析源码" description="解析Java类结构"></el-step>
+                                <el-step title="生成测试" description="Claude AI生成测试代码"></el-step>
+                                <el-step title="验证编译" description="检查测试代码语法"></el-step>
+                                <el-step title="执行测试" description="运行并验证测试"></el-step>
+                            </el-steps>
+                            <el-progress :percentage="testGenProgress.percentage"
+                                        :status="testGenProgress.status"
+                                        style="margin-top: 20px;">
+                            </el-progress>
+                            <div v-if="testGenProgress.message" style="margin-top: 10px; color: #666;">
+                                {{ testGenProgress.message }}
+                            </div>
+                        </div>
+
+                        <!-- 结果展示 -->
+                        <div v-if="testGenResult.show" class="test-result">
+                            <h4>生成结果</h4>
+                            <el-tabs type="card">
+                                <el-tab-pane label="测试代码">
+                                    <div class="code-container">
+                                        <div class="code-header">
+                                            <span>{{ testGenResult.testFileName }}</span>
+                                            <div>
+                                                <el-button size="mini" @click="copyTestCode">复制代码</el-button>
+                                                <el-button size="mini" type="primary" @click="downloadTestCode">下载文件</el-button>
+                                            </div>
+                                        </div>
+                                        <pre class="code-content"><code>{{ testGenResult.testCode }}</code></pre>
+                                    </div>
+                                </el-tab-pane>
+                                <el-tab-pane label="执行结果">
+                                    <el-descriptions border>
+                                        <el-descriptions-item label="编译状态">
+                                            <el-tag :type="testGenResult.compilationSuccess ? 'success' : 'danger'">
+                                                {{ testGenResult.compilationSuccess ? '编译成功' : '编译失败' }}
+                                            </el-tag>
+                                        </el-descriptions-item>
+                                        <el-descriptions-item label="测试通过">
+                                            <el-tag :type="testGenResult.testsPass ? 'success' : 'warning'">
+                                                {{ testGenResult.testsPass ? '全部通过' : '部分失败' }}
+                                            </el-tag>
+                                        </el-descriptions-item>
+                                        <el-descriptions-item label="覆盖率">
+                                            <span>{{ testGenResult.coveragePercentage }}%</span>
+                                        </el-descriptions-item>
+                                        <el-descriptions-item label="生成时间">
+                                            <span>{{ testGenResult.generationTime }}秒</span>
+                                        </el-descriptions-item>
+                                    </el-descriptions>
+                                    <div v-if="testGenResult.output" class="test-output">
+                                        <h5>执行输出：</h5>
+                                        <pre>{{ testGenResult.output }}</pre>
+                                    </div>
+                                </el-tab-pane>
+                            </el-tabs>
+                        </div>
+                    </div>
+                </el-tab-pane>
+
+                <el-tab-pane label="AI辅助开发" name="workflow">
+                    <div class="section">
+                        <h3>AI辅助开发工作流</h3>
+                        <el-button type="primary" @click="showCreateWorkflowDialog = true" icon="el-icon-plus">
+                            创建工作流
+                        </el-button>
+
+                        <el-table :data="workflows" style="width: 100%; margin-top: 20px;" v-loading="workflowsLoading">
+                            <el-table-column prop="name" label="工作流名称" width="200"></el-table-column>
+                            <el-table-column label="状态" width="150">
+                                <template slot-scope="scope">
+                                    <el-tag :type="getStatusType(scope.row.status)" size="small">
+                                        {{ getStatusText(scope.row.status) }}
+                                    </el-tag>
+                                </template>
+                            </el-table-column>
+                            <el-table-column label="进度" width="200">
+                                <template slot-scope="scope">
+                                    <el-progress :percentage="scope.row.progress" :color="getProgressColor(scope.row.progress)"></el-progress>
+                                </template>
+                            </el-table-column>
+                            <el-table-column prop="currentStage" label="当前阶段"></el-table-column>
+                            <el-table-column label="创建时间" width="180">
+                                <template slot-scope="scope">
+                                    {{ formatDate(scope.row.createdAt) }}
+                                </template>
+                            </el-table-column>
+                            <el-table-column label="操作" width="280">
+                                <template slot-scope="scope">
+                                    <el-button-group>
+                                        <el-button size="mini" @click="viewWorkflowDetail(scope.row)" icon="el-icon-view">
+                                            查看
+                                        </el-button>
+                                        <el-button size="mini" type="primary" @click="continueWorkflow(scope.row)"
+                                                   :disabled="!canContinue(scope.row)" icon="el-icon-right">
+                                            继续
+                                        </el-button>
+                                        <el-button size="mini" type="danger" @click="cancelWorkflow(scope.row)"
+                                                   :disabled="!canCancel(scope.row)" icon="el-icon-close">
+                                            取消
+                                        </el-button>
+                                    </el-button-group>
+                                </template>
+                            </el-table-column>
+                        </el-table>
+                    </div>
+                </el-tab-pane>
+            </el-tabs>
+
+            <!-- 添加仓库对话框 -->
+            <el-dialog title="添加Git仓库" :visible.sync="showAddDialog" width="500px">
+                <el-form :model="newRepository" label-width="100px">
+                    <el-form-item label="仓库名称">
+                        <el-input v-model="newRepository.name"></el-input>
+                    </el-form-item>
+                    <el-form-item label="仓库地址">
+                        <el-input v-model="newRepository.url"></el-input>
+                    </el-form-item>
+                    <el-form-item label="用户名">
+                        <el-input v-model="newRepository.username"></el-input>
+                    </el-form-item>
+                    <el-form-item label="密码">
+                        <el-input v-model="newRepository.password" type="password"></el-input>
+                    </el-form-item>
+                    <el-form-item label="描述">
+                        <el-input v-model="newRepository.description" type="textarea"></el-input>
+                    </el-form-item>
+                </el-form>
+                <span slot="footer" class="dialog-footer">
+                    <el-button @click="showAddDialog = false">取消</el-button>
+                    <el-button type="primary" @click="addRepository">确定</el-button>
+                </span>
+            </el-dialog>
+
+            <!-- 创建工作流对话框 -->
+            <el-dialog title="创建AI辅助开发工作流" :visible.sync="showCreateWorkflowDialog" width="700px">
+                <el-form :model="newWorkflow" label-width="130px">
+                    <el-form-item label="工作流名称">
+                        <el-input v-model="newWorkflow.name" placeholder="例如：用户登录功能开发"></el-input>
+                    </el-form-item>
+                    <el-form-item label="选择仓库">
+                        <el-select v-model="newWorkflow.repositoryId" placeholder="请选择仓库" style="width: 100%">
+                            <el-option v-for="repo in repositories"
+                                       :key="repo.id"
+                                       :label="repo.name"
+                                       :value="repo.id">
+                            </el-option>
+                        </el-select>
+                    </el-form-item>
+                    <el-form-item label="PRD内容">
+                        <el-input type="textarea" v-model="newWorkflow.prdContent" :rows="6"
+                                  placeholder="请输入产品需求文档内容..."></el-input>
+                    </el-form-item>
+
+                    <el-divider>代码风格配置（可选）</el-divider>
+
+                    <el-form-item label="架构模式">
+                        <el-select v-model="newWorkflow.architecture" placeholder="默认：DDD 六边形架构" clearable style="width: 100%">
+                            <el-option label="DDD 六边形架构（Domain/Application/Infrastructure）" value="DDD 六边形架构（Domain/Application/Infrastructure）"></el-option>
+                            <el-option label="MVC 三层架构（Controller/Service/DAO）" value="MVC 三层架构（Controller/Service/DAO）"></el-option>
+                            <el-option label="分层架构（Presentation/Business/Persistence）" value="分层架构（Presentation/Business/Persistence）"></el-option>
+                            <el-option label="微服务架构（API Gateway + Service Mesh）" value="微服务架构（API Gateway + Service Mesh）"></el-option>
+                            <el-option label="Clean Architecture（整洁架构）" value="Clean Architecture（整洁架构）"></el-option>
+                        </el-select>
+                    </el-form-item>
+
+                    <el-form-item label="编码规范">
+                        <el-select v-model="newWorkflow.codingStyle" placeholder="默认：Alibaba-P3C" clearable style="width: 100%">
+                            <el-option label="Alibaba-P3C 规范" value="Alibaba-P3C 规范"></el-option>
+                            <el-option label="Google Java Style Guide" value="Google Java Style Guide"></el-option>
+                            <el-option label="Spring Boot 最佳实践" value="Spring Boot 最佳实践"></el-option>
+                            <el-option label="阿里巴巴微服务规范" value="阿里巴巴微服务规范"></el-option>
+                        </el-select>
+                    </el-form-item>
+
+                    <el-form-item label="命名规范">
+                        <el-select v-model="newWorkflow.namingConvention" placeholder="默认：驼峰命名法" clearable style="width: 100%">
+                            <el-option label="驼峰命名法（camelCase）" value="驼峰命名法"></el-option>
+                            <el-option label="下划线命名法（snake_case）" value="下划线命名法"></el-option>
+                        </el-select>
+                    </el-form-item>
+
+                    <el-form-item label="注释语言">
+                        <el-select v-model="newWorkflow.commentLanguage" placeholder="默认：中文" clearable style="width: 100%">
+                            <el-option label="中文" value="中文"></el-option>
+                            <el-option label="英文" value="英文"></el-option>
+                        </el-select>
+                    </el-form-item>
+
+                    <el-row :gutter="20">
+                        <el-col :span="12">
+                            <el-form-item label="方法最大行数">
+                                <el-input-number v-model="newWorkflow.maxMethodLines" :min="10" :max="100" placeholder="默认：50"></el-input-number>
+                            </el-form-item>
+                        </el-col>
+                        <el-col :span="12">
+                            <el-form-item label="参数最大个数">
+                                <el-input-number v-model="newWorkflow.maxParameters" :min="1" :max="10" placeholder="默认：5"></el-input-number>
+                            </el-form-item>
+                        </el-col>
+                    </el-row>
+                </el-form>
+                <span slot="footer" class="dialog-footer">
+                    <el-button @click="showCreateWorkflowDialog = false">取消</el-button>
+                    <el-button type="primary" @click="createWorkflow" :loading="createWorkflowLoading">创建并生成规格文档</el-button>
+                </span>
+            </el-dialog>
+
+            <!-- 工作流详情对话框 -->
+            <el-dialog :title="'工作流详情 - ' + (currentWorkflow.name || '')"
+                       :visible.sync="showWorkflowDetailDialog"
+                       width="90%"
+                       top="5vh">
+                <el-steps :active="getWorkflowStep(currentWorkflow.status)" finish-status="success" align-center>
+                    <el-step title="规格文档" description="生成spec.md"></el-step>
+                    <el-step title="技术方案" description="设计与批准"></el-step>
+                    <el-step title="任务列表" description="拆分任务"></el-step>
+                    <el-step title="代码生成" description="AI生成代码"></el-step>
+                    <el-step title="完成" description="工作流结束"></el-step>
+                </el-steps>
+
+                <el-tabs v-model="workflowDetailTab" style="margin-top: 20px;">
+                    <!-- 规格文档 -->
+                    <el-tab-pane label="规格文档" name="spec">
+                        <div v-if="currentWorkflow.specification">
+                            <div style="margin-bottom: 15px;">
+                                <el-button-group>
+                                    <el-button size="small" icon="el-icon-refresh" @click="regenerateSpecification"
+                                               :loading="specRegenerating"
+                                               :disabled="currentWorkflow.status !== 'SPEC_GENERATED'">
+                                        重新生成规格文档
+                                    </el-button>
+                                    <el-button size="small" type="primary" @click="generateTechDesign"
+                                               :loading="techDesignLoading"
+                                               :disabled="currentWorkflow.status !== 'SPEC_GENERATED'">
+                                        生成技术方案
+                                    </el-button>
+                                </el-button-group>
+                            </div>
+                            <div class="code-container">
+                                <div class="code-header">
+                                    <span>spec.md</span>
+                                    <el-button size="mini" @click="copyContent(currentWorkflow.specification.content)">复制</el-button>
+                                </div>
+                                <div class="code-content review-result" v-html="renderedSpecification"></div>
+                            </div>
+                        </div>
+                        <el-empty v-else description="规格文档未生成"></el-empty>
+                    </el-tab-pane>
+
+                    <!-- 技术方案 -->
+                    <el-tab-pane label="技术方案" name="techDesign">
+                        <div v-if="currentWorkflow.technicalDesign">
+                            <div style="margin-bottom: 15px;">
+                                <el-button-group>
+                                    <el-button size="small" @click="editTechDesign"
+                                               :disabled="currentWorkflow.status !== 'TECH_DESIGN_GENERATED'">
+                                        编辑方案
+                                    </el-button>
+                                    <el-button size="small" type="success" @click="approveTechDesign"
+                                               :loading="approveLoading"
+                                               :disabled="currentWorkflow.status !== 'TECH_DESIGN_GENERATED' || currentWorkflow.technicalDesign.approved">
+                                        批准方案
+                                    </el-button>
+                                    <el-button size="small" type="primary" @click="generateTaskList"
+                                               :loading="taskListLoading"
+                                               :disabled="currentWorkflow.status !== 'TECH_DESIGN_APPROVED'">
+                                        生成任务列表
+                                    </el-button>
+                                </el-button-group>
+                                <el-tag v-if="currentWorkflow.technicalDesign.approved" type="success" style="margin-left: 10px;">
+                                    已批准 (版本 {{ currentWorkflow.technicalDesign.version }})
+                                </el-tag>
+                            </div>
+                            <div class="code-container">
+                                <div class="code-header">
+                                    <span>tech-design.md (版本: {{ currentWorkflow.technicalDesign.version }})</span>
+                                    <el-button size="mini" @click="copyContent(currentWorkflow.technicalDesign.content)">复制</el-button>
+                                </div>
+                                <div class="code-content review-result" v-html="renderedTechnicalDesign"></div>
+                            </div>
+                        </div>
+                        <el-empty v-else description="技术方案未生成"></el-empty>
+                    </el-tab-pane>
+
+                    <!-- 任务列表 -->
+                    <el-tab-pane label="任务列表" name="taskList">
+                        <div v-if="currentWorkflow.taskList && currentWorkflow.taskList.tasks">
+                            <div style="margin-bottom: 15px;">
+                                <el-button size="small" type="primary" @click="startCodeGeneration"
+                                           :loading="codeGenLoading"
+                                           :disabled="currentWorkflow.status !== 'TASK_LIST_GENERATED'">
+                                    开始代码生成
+                                </el-button>
+                                <span style="margin-left: 15px; color: #666;">
+                                    进度: {{ currentWorkflow.taskList.completedTasks || 0 }} / {{ currentWorkflow.taskList.totalTasks || 0 }}
+                                </span>
+                            </div>
+                            <el-table :data="currentWorkflow.taskList.tasks" style="width: 100%">
+                                <el-table-column prop="id" label="任务ID" width="100"></el-table-column>
+                                <el-table-column prop="title" label="任务标题"></el-table-column>
+                                <el-table-column label="状态" width="120">
+                                    <template slot-scope="scope">
+                                        <el-tag :type="getTaskStatusType(scope.row.status)" size="small">
+                                            {{ getTaskStatusText(scope.row.status) }}
+                                        </el-tag>
+                                    </template>
+                                </el-table-column>
+                                <el-table-column prop="targetFile" label="目标文件"></el-table-column>
+                            </el-table>
+                        </div>
+                        <el-empty v-else description="任务列表未生成"></el-empty>
+                    </el-tab-pane>
+
+                    <!-- 生成代码 -->
+                    <el-tab-pane label="生成代码" name="code">
+                        <div v-if="currentWorkflow.taskList && currentWorkflow.taskList.tasks">
+                            <el-collapse accordion>
+                                <el-collapse-item v-for="task in completedTasks" :key="task.id" :title="task.id + ' - ' + task.title">
+                                    <div class="code-container">
+                                        <div class="code-header">
+                                            <span>{{ task.targetFile }}</span>
+                                            <el-button size="mini" @click="copyContent(task.generatedCode)">复制代码</el-button>
+                                        </div>
+                                        <pre class="code-content">{{ task.generatedCode }}</pre>
+                                    </div>
+                                </el-collapse-item>
+                            </el-collapse>
+                            <el-empty v-if="completedTasks.length === 0" description="暂无已生成的代码"></el-empty>
+                        </div>
+                        <el-empty v-else description="任务列表未生成"></el-empty>
+                    </el-tab-pane>
+                </el-tabs>
+            </el-dialog>
+
+            <!-- 编辑技术方案对话框 -->
+            <el-dialog title="编辑技术方案" :visible.sync="showEditTechDesignDialog" width="80%">
+                <el-input type="textarea" v-model="editingTechDesign" :rows="20"
+                          placeholder="编辑技术方案内容..."></el-input>
+                <span slot="footer" class="dialog-footer">
+                    <el-button @click="showEditTechDesignDialog = false">取消</el-button>
+                    <el-button type="primary" @click="saveTechDesign" :loading="saveTechDesignLoading">保存</el-button>
+                </span>
+            </el-dialog>
+        </div>
+    </div>
+
+    <script>
+        new Vue({
+            el: '#app',
+            data() {
+                return {
+                    repositories: [],
+                    branches: [],
+                    testBranches: [],
+                    reviewForm: {
+                        repositoryId: '',
+                        baseBranch: 'master',
+                        targetBranch: '',
+                        mode: 'deep'
+                    },
+                    testGenForm: {
+                        repositoryId: '',
+                        branch: 'master',
+                        className: '',
+                        gateId: '',
+                        requirement: '',
+                        testType: 'mock',
+                        qualityLevel: 5
+                    },
+                    newRepository: {
+                        name: '',
+                        url: '',
+                        username: '',
+                        password: '',
+                        description: ''
+                    },
+                    showAddDialog: false,
+                    reviewLoading: false,
+                    remoteLoading: false,
+                    testGenLoading: false,
+                    reviewResult: '',
+                    currentReviewId: null,
+                    exportLoading: false,
+                    testGenProgress: {
+                        show: false,
+                        currentStep: 0,
+                        percentage: 0,
+                        status: '',
+                        message: ''
+                    },
+                    testGenResult: {
+                        show: false,
+                        taskId: '',
+                        testCode: '',
+                        testFileName: '',
+                        compilationSuccess: false,
+                        testsPass: false,
+                        coveragePercentage: 0,
+                        generationTime: 0,
+                        output: ''
+                    },
+                    // 工作流相关数据
+                    activeTab: 'repos',
+                    workflows: [],
+                    workflowsLoading: false,
+                    showCreateWorkflowDialog: false,
+                    showWorkflowDetailDialog: false,
+                    showEditTechDesignDialog: false,
+                    createWorkflowLoading: false,
+                    specRegenerating: false,
+                    techDesignLoading: false,
+                    approveLoading: false,
+                    taskListLoading: false,
+                    codeGenLoading: false,
+                    saveTechDesignLoading: false,
+                    newWorkflow: {
+                        name: '',
+                        repositoryId: '',
+                        prdContent: '',
+                        architecture: '',
+                        codingStyle: '',
+                        namingConvention: '',
+                        commentLanguage: '',
+                        maxMethodLines: null,
+                        maxParameters: null
+                    },
+                    currentWorkflow: {},
+                    workflowDetailTab: 'spec',
+                    editingTechDesign: '',
+                    workflowPollingTimer: null
+                }
+            },
+            mounted() {
+                this.loadRepositories();
+                this.loadWorkflows();
+            },
+            beforeDestroy() {
+                if (this.workflowPollingTimer) {
+                    clearInterval(this.workflowPollingTimer);
+                }
+            },
+            computed: {
+                renderedReviewResult() {
+                    if (!this.reviewResult) {
+                        return '';
+                    }
+                    // 使用 marked 库渲染 Markdown
+                    return marked.parse(this.reviewResult);
+                },
+                renderedSpecification() {
+                    if (!this.currentWorkflow.specification || !this.currentWorkflow.specification.content) {
+                        return '';
+                    }
+                    return marked.parse(this.currentWorkflow.specification.content);
+                },
+                renderedTechnicalDesign() {
+                    if (!this.currentWorkflow.technicalDesign || !this.currentWorkflow.technicalDesign.content) {
+                        return '';
+                    }
+                    return marked.parse(this.currentWorkflow.technicalDesign.content);
+                },
+                completedTasks() {
+                    if (!this.currentWorkflow.taskList || !this.currentWorkflow.taskList.tasks) {
+                        return [];
+                    }
+                    return this.currentWorkflow.taskList.tasks.filter(t => t.status === 'COMPLETED' && t.generatedCode);
+                }
+            },
+            methods: {
+                async loadRepositories() {
+                    try {
+                        const response = await axios.get('/api/repositories');
+                        console.log('Loaded repositories:', response.data);
+                        this.repositories = response.data;
+                    } catch (error) {
+                        console.error('Failed to load repositories:', error);
+                        this.$message.error('加载仓库列表失败');
+                    }
+                },
+                
+                async loadBranches() {
+                    if (!this.reviewForm.repositoryId) return;
+                    
+                    try {
+                        const response = await axios.get(`/api/git/${this.reviewForm.repositoryId}/branches`);
+                        // 修复：正确处理BranchListDTO的数据结构
+                        this.branches = response.data.branches || [];
+                    } catch (error) {
+                        this.$message.error('加载分支列表失败');
+                    }
+                },
+                
+                async loadRemoteBranches() {
+                    if (!this.reviewForm.repositoryId) {
+                        this.$message.warning('请先选择仓库');
+                        return;
+                    }
+                    
+                    this.remoteLoading = true;
+                    try {
+                        const response = await axios.get(`/api/repositories/${this.reviewForm.repositoryId}/remote-branches`);
+                        // 修复：正确处理BranchListDTO的数据结构
+                        this.branches = response.data.branches || [];
+                        this.$message.success('远程分支加载成功');
+                    } catch (error) {
+                        this.$message.error('加载远程分支失败: ' + (error.response?.data || error.message));
+                    } finally {
+                        this.remoteLoading = false;
+                    }
+                },
+                
+                async addRepository() {
+                    try {
+                        const response = await axios.post('/api/repositories', this.newRepository);
+                        console.log('Repository created:', response.data);
+                        this.showAddDialog = false;
+                        this.newRepository = { name: '', url: '', username: '', password: '', description: '' };
+                        await this.loadRepositories();
+                        this.$message.success('仓库添加成功');
+                    } catch (error) {
+                        console.error('Failed to add repository:', error);
+                        this.$message.error('添加仓库失败: ' + (error.response?.data?.message || error.message));
+                    }
+                },
+                
+                async testConnection(repository) {
+                    try {
+                        await axios.post(`/api/repositories/${repository.id}/test-connection`);
+                        this.$message.success('连接测试成功');
+                    } catch (error) {
+                        this.$message.error('连接测试失败');
+                    }
+                },
+                
+                async deleteRepository(id) {
+                    try {
+                        await axios.delete(`/api/repositories/${id}`);
+                        this.loadRepositories();
+                        this.$message.success('删除成功');
+                    } catch (error) {
+                        this.$message.error('删除失败');
+                    }
+                },
+                
+                async startReview() {
+                    if (!this.reviewForm.repositoryId || !this.reviewForm.targetBranch) {
+                        this.$message.warning('请选择仓库和分支');
+                        return;
+                    }
+
+                    this.reviewLoading = true;
+                    this.reviewResult = '';
+                    this.currentReviewId = null;
+
+                    try {
+                        // 修复：使用POST请求并通过FormData传递参数
+                        const params = new URLSearchParams();
+                        params.append('baseBranch', this.reviewForm.baseBranch);
+                        params.append('targetBranch', this.reviewForm.targetBranch);
+                        params.append('mode', this.reviewForm.mode);
+
+                        const response = await axios.post(
+                            `/api/review/${this.reviewForm.repositoryId}/claude`,
+                            params,
+                            {
+                                headers: {
+                                    'Content-Type': 'application/x-www-form-urlencoded'
+                                }
+                            }
+                        );
+                        this.reviewResult = response.data;
+                        // 使用repositoryId作为临时的reviewId（用于文件命名）
+                        this.currentReviewId = this.reviewForm.repositoryId;
+                        this.$message.success('Review完成');
+                    } catch (error) {
+                        this.$message.error('Review失败: ' + (error.response?.data || error.message));
+                    } finally {
+                        this.reviewLoading = false;
+                    }
+                },
+
+                // 获取审查模式说明
+                getModeDescription(mode) {
+                    const descriptions = {
+                        'quick': '快速审查：仅关注关键Bug、安全漏洞和严重性能问题，适合日常PR审查',
+                        'standard': '标准审查：平衡的审查深度，覆盖常见的代码质量问题，适合功能合并前检查',
+                        'deep': '深度审查：全面深入的审查，包含详细的问题分级(P0-P3)、修复建议和代码示例，适合版本发布前的严格审查',
+                        'security': '安全审查：专注于安全漏洞检测，包括SQL注入、XSS、CSRF、认证授权等问题',
+                        'performance': '性能审查：专注于性能问题，包括N+1查询、慢SQL、内存泄漏、资源未关闭等',
+                        'architecture': '架构审查：关注架构设计，包括分层耦合、SOLID原则、设计模式应用等'
+                    };
+                    return descriptions[mode] || '';
+                },
+
+                // 导出Markdown格式报告
+                async exportMarkdown() {
+                    if (!this.reviewResult) {
+                        this.$message.warning('没有可导出的审查结果');
+                        return;
+                    }
+
+                    this.exportLoading = true;
+                    try {
+                        // 创建Markdown内容
+                        const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
+                        const filename = `review-${this.currentReviewId}-${timestamp}.md`;
+
+                        // 构建完整的Markdown内容
+                        const repoName = this.repositories.find(r => r.id === this.reviewForm.repositoryId)?.name || 'Unknown';
+                        const markdown = `# 代码审查报告
+
+## 基本信息
+
+- **仓库**: ${repoName}
+- **分支**: ${this.reviewForm.baseBranch} → ${this.reviewForm.targetBranch}
+- **审查时间**: ${new Date().toLocaleString('zh-CN')}
+
+---
+
+## 审查结果
+
+${this.reviewResult}
+
+---
+
+**报告生成时间**: ${new Date().toLocaleString('zh-CN')}
+**生成工具**: Git Review Service
+`;
+
+                        // 创建Blob并下载
+                        const blob = new Blob([markdown], { type: 'text/markdown;charset=utf-8' });
+                        const url = window.URL.createObjectURL(blob);
+                        const link = document.createElement('a');
+                        link.href = url;
+                        link.download = filename;
+                        document.body.appendChild(link);
+                        link.click();
+                        document.body.removeChild(link);
+                        window.URL.revokeObjectURL(url);
+
+                        this.$message.success('Markdown报告已导出');
+                    } catch (error) {
+                        this.$message.error('导出失败: ' + error.message);
+                    } finally {
+                        this.exportLoading = false;
+                    }
+                },
+
+                // 导出JSON格式报告
+                async exportJson() {
+                    if (!this.reviewResult) {
+                        this.$message.warning('没有可导出的审查结果');
+                        return;
+                    }
+
+                    this.exportLoading = true;
+                    try {
+                        const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
+                        const filename = `review-${this.currentReviewId}-${timestamp}.json`;
+
+                        const repoName = this.repositories.find(r => r.id === this.reviewForm.repositoryId)?.name || 'Unknown';
+
+                        // 构建JSON数据
+                        const jsonData = {
+                            reviewId: this.currentReviewId,
+                            repository: {
+                                id: this.reviewForm.repositoryId,
+                                name: repoName
+                            },
+                            branches: {
+                                base: this.reviewForm.baseBranch,
+                                target: this.reviewForm.targetBranch
+                            },
+                            reviewTime: new Date().toISOString(),
+                            result: this.reviewResult,
+                            metadata: {
+                                generatedBy: 'Git Review Service',
+                                version: '1.0.0'
+                            }
+                        };
+
+                        // 创建Blob并下载
+                        const blob = new Blob([JSON.stringify(jsonData, null, 2)], {
+                            type: 'application/json;charset=utf-8'
+                        });
+                        const url = window.URL.createObjectURL(blob);
+                        const link = document.createElement('a');
+                        link.href = url;
+                        link.download = filename;
+                        document.body.appendChild(link);
+                        link.click();
+                        document.body.removeChild(link);
+                        window.URL.revokeObjectURL(url);
+
+                        this.$message.success('JSON报告已导出');
+                    } catch (error) {
+                        this.$message.error('导出失败: ' + error.message);
+                    } finally {
+                        this.exportLoading = false;
+                    }
+                },
+
+                // 测试生成相关方法
+                async loadTestBranches() {
+                    if (!this.testGenForm.repositoryId) return;
+
+                    try {
+                        const response = await axios.get(`/api/git/${this.testGenForm.repositoryId}/branches`);
+                        // 修复：正确处理BranchListDTO的数据结构
+                        this.testBranches = response.data.branches || [];
+                    } catch (error) {
+                        this.$message.error('加载分支列表失败');
+                    }
+                },
+
+                formatQualityTooltip(val) {
+                    const levels = {
+                        1: '基础',
+                        2: '良好',
+                        3: '标准',
+                        4: '高质量',
+                        5: '完美'
+                    };
+                    return levels[val] || '标准';
+                },
+
+                resetTestForm() {
+                    this.testGenForm = {
+                        repositoryId: '',
+                        branch: 'master',
+                        className: '',
+                        gateId: '',
+                        requirement: '',
+                        testType: 'mock',
+                        qualityLevel: 5
+                    };
+                    this.testGenProgress.show = false;
+                    this.testGenResult.show = false;
+                },
+
+                async startTestGeneration() {
+                    if (!this.testGenForm.repositoryId || !this.testGenForm.branch || !this.testGenForm.className) {
+                        this.$message.warning('请填写所有必填字段');
+                        return;
+                    }
+
+                    this.testGenLoading = true;
+                    this.testGenProgress.show = true;
+                    this.testGenProgress.currentStep = 0;
+                    this.testGenProgress.percentage = 0;
+                    this.testGenProgress.status = 'active';
+                    this.testGenProgress.message = '正在分析源码...';
+                    this.testGenResult.show = false;
+
+                    try {
+                        // 调用测试生成API
+                        const response = await axios.post('/api/test-generation/generate', {
+                            repositoryId: this.testGenForm.repositoryId,
+                            branch: this.testGenForm.branch,
+                            className: this.testGenForm.className,
+                            gateId: this.testGenForm.gateId,
+                            requirement: this.testGenForm.requirement,
+                            testType: this.testGenForm.testType,
+                            qualityLevel: this.testGenForm.qualityLevel
+                        });
+
+                        const taskId = response.data.taskId;
+
+                        // 轮询任务状态
+                        await this.pollTaskStatus(taskId);
+
+                    } catch (error) {
+                        this.testGenProgress.status = 'exception';
+                        this.testGenProgress.message = '生成失败: ' + (error.response?.data?.message || error.message);
+                        this.$message.error('测试生成失败');
+                    } finally {
+                        this.testGenLoading = false;
+                    }
+                },
+
+                async pollTaskStatus(taskId) {
+                    const pollInterval = 2000; // 2秒轮询一次
+                    const maxPolls = 150; // 最多轮询5分钟
+                    let pollCount = 0;
+
+                    const poll = async () => {
+                        if (pollCount >= maxPolls) {
+                            this.testGenProgress.status = 'exception';
+                            this.testGenProgress.message = '生成超时';
+                            return;
+                        }
+
+                        try {
+                            const response = await axios.get(`/api/test-generation/status/${taskId}`);
+                            const status = response.data;
+
+                            // 更新进度
+                            this.updateProgress(status);
+
+                            if (status.status === 'COMPLETED') {
+                                // 获取最终结果
+                                await this.loadFinalResult(taskId);
+                                return;
+                            } else if (status.status === 'FAILED') {
+                                this.testGenProgress.status = 'exception';
+                                this.testGenProgress.message = '生成失败: ' + status.message;
+                                return;
+                            }
+
+                            // 继续轮询
+                            pollCount++;
+                            setTimeout(poll, pollInterval);
+
+                        } catch (error) {
+                            this.testGenProgress.status = 'exception';
+                            this.testGenProgress.message = '状态查询失败';
+                        }
+                    };
+
+                    await poll();
+                },
+
+                updateProgress(status) {
+                    const stepMap = {
+                        'ANALYZING': { step: 0, message: '正在分析Java类结构...', percentage: 25 },
+                        'GENERATING': { step: 1, message: '正在生成测试代码...', percentage: 50 },
+                        'COMPILING': { step: 2, message: '正在验证编译...', percentage: 75 },
+                        'TESTING': { step: 3, message: '正在执行测试...', percentage: 90 },
+                        'COMPLETED': { step: 4, message: '生成完成', percentage: 100 }
+                    };
+
+                    const progress = stepMap[status.status] || { step: 0, message: status.message, percentage: 0 };
+
+                    this.testGenProgress.currentStep = progress.step;
+                    this.testGenProgress.percentage = progress.percentage;
+                    this.testGenProgress.message = progress.message;
+
+                    if (status.status === 'COMPLETED') {
+                        this.testGenProgress.status = 'success';
+                    }
+                },
+
+                async loadFinalResult(taskId) {
+                    try {
+                        const response = await axios.get(`/api/test-generation/result/${taskId}`);
+                        const result = response.data;
+
+                        this.testGenResult = {
+                            show: true,
+                            taskId: taskId,
+                            testCode: result.testCode,
+                            testFileName: result.testFileName,
+                            compilationSuccess: result.compilationSuccess,
+                            testsPass: result.testsPass,
+                            coveragePercentage: result.coveragePercentage || 0,
+                            generationTime: result.generationTime || 0,
+                            output: result.output || ''
+                        };
+
+                        this.$message.success('测试代码生成完成！');
+                    } catch (error) {
+                        this.$message.error('获取结果失败');
+                    }
+                },
+
+                copyTestCode() {
+                    if (!this.testGenResult.testCode) return;
+
+                    // 创建临时textarea元素复制文本
+                    const textarea = document.createElement('textarea');
+                    textarea.value = this.testGenResult.testCode;
+                    document.body.appendChild(textarea);
+                    textarea.select();
+                    document.execCommand('copy');
+                    document.body.removeChild(textarea);
+
+                    this.$message.success('代码已复制到剪贴板');
+                },
+
+                downloadTestCode() {
+                    if (!this.testGenResult.testCode) return;
+
+                    const blob = new Blob([this.testGenResult.testCode], { type: 'text/plain' });
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = this.testGenResult.testFileName || 'TestClass.java';
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                    window.URL.revokeObjectURL(url);
+
+                    this.$message.success('文件下载完成');
+                },
+
+                // ========== 工作流相关方法 ==========
+                async loadWorkflows() {
+                    this.workflowsLoading = true;
+                    try {
+                        const response = await axios.get('/api/workflow');
+                        this.workflows = response.data;
+                    } catch (error) {
+                        this.$message.error('加载工作流列表失败');
+                    } finally {
+                        this.workflowsLoading = false;
+                    }
+                },
+
+                async createWorkflow() {
+                    if (!this.newWorkflow.name || !this.newWorkflow.repositoryId || !this.newWorkflow.prdContent) {
+                        this.$message.warning('请填写所有必填项');
+                        return;
+                    }
+
+                    this.createWorkflowLoading = true;
+                    try {
+                        // 1. 创建工作流（包含代码风格配置）
+                        const createPayload = {
+                            name: this.newWorkflow.name,
+                            repositoryId: this.newWorkflow.repositoryId,
+                            createdBy: 'user'
+                        };
+
+                        // 添加可选的代码风格配置
+                        if (this.newWorkflow.architecture) {
+                            createPayload.architecture = this.newWorkflow.architecture;
+                        }
+                        if (this.newWorkflow.codingStyle) {
+                            createPayload.codingStyle = this.newWorkflow.codingStyle;
+                        }
+                        if (this.newWorkflow.namingConvention) {
+                            createPayload.namingConvention = this.newWorkflow.namingConvention;
+                        }
+                        if (this.newWorkflow.commentLanguage) {
+                            createPayload.commentLanguage = this.newWorkflow.commentLanguage;
+                        }
+                        if (this.newWorkflow.maxMethodLines) {
+                            createPayload.maxMethodLines = this.newWorkflow.maxMethodLines;
+                        }
+                        if (this.newWorkflow.maxParameters) {
+                            createPayload.maxParameters = this.newWorkflow.maxParameters;
+                        }
+
+                        const createRes = await axios.post('/api/workflow', createPayload);
+                        const workflowId = createRes.data.workflowId;
+
+                        // 2. 生成规格文档
+                        await axios.post(`/api/workflow/${workflowId}/spec/generate`, {
+                            prdContent: this.newWorkflow.prdContent,
+                            documentPaths: []
+                        });
+
+                        this.$message.success('工作流创建成功，正在生成规格文档...');
+                        this.showCreateWorkflowDialog = false;
+                        this.newWorkflow = {
+                            name: '',
+                            repositoryId: '',
+                            prdContent: '',
+                            architecture: '',
+                            codingStyle: '',
+                            namingConvention: '',
+                            commentLanguage: '',
+                            maxMethodLines: null,
+                            maxParameters: null
+                        };
+
+                        // 刷新列表
+                        await this.loadWorkflows();
+
+                        // 开启轮询
+                        this.startPollingWorkflow(workflowId);
+                    } catch (error) {
+                        this.$message.error('创建工作流失败: ' + (error.response?.data?.message || error.message));
+                    } finally {
+                        this.createWorkflowLoading = false;
+                    }
+                },
+
+                async viewWorkflowDetail(workflow) {
+                    try {
+                        // 获取完整的工作流详情
+                        const promises = [
+                            axios.get(`/api/workflow/${workflow.id}/status`)
+                        ];
+
+                        // 根据状态获取不同的数据
+                        if (workflow.status !== 'DRAFT' && workflow.status !== 'SPEC_GENERATING') {
+                            promises.push(axios.get(`/api/workflow/${workflow.id}/spec`).catch(() => null));
+                        }
+                        if (['TECH_DESIGN_GENERATED', 'TECH_DESIGN_APPROVED', 'TASK_LIST_GENERATING', 'TASK_LIST_GENERATED', 'CODE_GENERATING', 'COMPLETED'].includes(workflow.status)) {
+                            promises.push(axios.get(`/api/workflow/${workflow.id}/tech-design`).catch(() => null));
+                        }
+                        if (['TASK_LIST_GENERATED', 'CODE_GENERATING', 'COMPLETED'].includes(workflow.status)) {
+                            promises.push(axios.get(`/api/workflow/${workflow.id}/tasklist`).catch(() => null));
+                        }
+
+                        const results = await Promise.all(promises);
+
+                        this.currentWorkflow = {
+                            ...results[0].data,
+                            specification: results[1]?.data || null,
+                            technicalDesign: results[2]?.data || null,
+                            taskList: results[3]?.data || null
+                        };
+
+                        this.showWorkflowDetailDialog = true;
+
+                        // 如果工作流正在进行中，开启轮询
+                        if (!['COMPLETED', 'FAILED', 'CANCELLED'].includes(workflow.status)) {
+                            this.startPollingWorkflow(workflow.id);
+                        }
+                    } catch (error) {
+                        this.$message.error('获取工作流详情失败');
+                    }
+                },
+
+                continueWorkflow(workflow) {
+                    this.viewWorkflowDetail(workflow);
+                },
+
+                async cancelWorkflow(workflow) {
+                    try {
+                        await this.$confirm('确定要取消该工作流吗？', '提示', {
+                            confirmButtonText: '确定',
+                            cancelButtonText: '取消',
+                            type: 'warning'
+                        });
+
+                        await axios.post(`/api/workflow/${workflow.id}/cancel`, { reason: '用户手动取消' });
+                        this.$message.success('工作流已取消');
+                        await this.loadWorkflows();
+                    } catch (error) {
+                        if (error !== 'cancel') {
+                            this.$message.error('取消工作流失败');
+                        }
+                    }
+                },
+
+                async regenerateSpecification() {
+                    try {
+                        const result = await this.$confirm('确认重新生成规格文档吗？将使用原有PRD内容重新生成。', '提示', {
+                            confirmButtonText: '确定',
+                            cancelButtonText: '取消',
+                            type: 'warning'
+                        });
+
+                        this.specRegenerating = true;
+                        await axios.post(`/api/workflow/${this.currentWorkflow.id}/spec/generate`, {
+                            prdContent: this.currentWorkflow.specification.prdContent,
+                            documentPaths: this.currentWorkflow.specification.documentPaths || []
+                        });
+                        this.$message.success('规格文档重新生成中，请稍候...');
+                        this.startPollingWorkflow(this.currentWorkflow.id);
+                    } catch (error) {
+                        if (error !== 'cancel') {
+                            this.$message.error('重新生成规格文档失败');
+                        }
+                    } finally {
+                        this.specRegenerating = false;
+                    }
+                },
+
+                async generateTechDesign() {
+                    this.techDesignLoading = true;
+                    try {
+                        await axios.post(`/api/workflow/${this.currentWorkflow.id}/tech-design/generate`);
+                        this.$message.success('技术方案生成中，请稍候...');
+                        this.startPollingWorkflow(this.currentWorkflow.id);
+                    } catch (error) {
+                        this.$message.error('生成技术方案失败');
+                    } finally {
+                        this.techDesignLoading = false;
+                    }
+                },
+
+                editTechDesign() {
+                    this.editingTechDesign = this.currentWorkflow.technicalDesign.content;
+                    this.showEditTechDesignDialog = true;
+                },
+
+                async saveTechDesign() {
+                    this.saveTechDesignLoading = true;
+                    try {
+                        await axios.put(`/api/workflow/${this.currentWorkflow.id}/tech-design`, {
+                            content: this.editingTechDesign
+                        });
+                        this.$message.success('技术方案已更新');
+                        this.showEditTechDesignDialog = false;
+                        await this.viewWorkflowDetail(this.currentWorkflow);
+                    } catch (error) {
+                        this.$message.error('保存失败');
+                    } finally {
+                        this.saveTechDesignLoading = false;
+                    }
+                },
+
+                async approveTechDesign() {
+                    this.approveLoading = true;
+                    try {
+                        await axios.post(`/api/workflow/${this.currentWorkflow.id}/tech-design/approve`);
+                        this.$message.success('技术方案已批准');
+                        await this.viewWorkflowDetail(this.currentWorkflow);
+                    } catch (error) {
+                        this.$message.error('批准失败');
+                    } finally {
+                        this.approveLoading = false;
+                    }
+                },
+
+                async generateTaskList() {
+                    this.taskListLoading = true;
+                    try {
+                        await axios.post(`/api/workflow/${this.currentWorkflow.id}/tasklist/generate`);
+                        this.$message.success('任务列表生成中，请稍候...');
+                        this.startPollingWorkflow(this.currentWorkflow.id);
+                    } catch (error) {
+                        this.$message.error('生成任务列表失败');
+                    } finally {
+                        this.taskListLoading = false;
+                    }
+                },
+
+                async startCodeGeneration() {
+                    this.codeGenLoading = true;
+                    try {
+                        await axios.post(`/api/workflow/${this.currentWorkflow.id}/code-generation/start`);
+                        this.$message.success('代码生成中，请稍候...');
+                        this.startPollingWorkflow(this.currentWorkflow.id);
+                    } catch (error) {
+                        this.$message.error('开始代码生成失败');
+                    } finally {
+                        this.codeGenLoading = false;
+                    }
+                },
+
+                startPollingWorkflow(workflowId) {
+                    if (this.workflowPollingTimer) {
+                        clearInterval(this.workflowPollingTimer);
+                    }
+
+                    this.workflowPollingTimer = setInterval(async () => {
+                        try {
+                            const res = await axios.get(`/api/workflow/${workflowId}/status`);
+                            const status = res.data.status;
+
+                            // 更新列表
+                            await this.loadWorkflows();
+
+                            // 如果详情对话框打开且是当前工作流，则刷新详情
+                            if (this.showWorkflowDetailDialog && this.currentWorkflow.id === workflowId) {
+                                await this.viewWorkflowDetail({ id: workflowId, status });
+                            }
+
+                            // 如果已完成，停止轮询
+                            if (['COMPLETED', 'FAILED', 'CANCELLED'].includes(status)) {
+                                clearInterval(this.workflowPollingTimer);
+                                this.workflowPollingTimer = null;
+                            }
+                        } catch (error) {
+                            console.error('轮询工作流状态失败', error);
+                        }
+                    }, 3000);
+                },
+
+                copyContent(content) {
+                    const textarea = document.createElement('textarea');
+                    textarea.value = content;
+                    document.body.appendChild(textarea);
+                    textarea.select();
+                    document.execCommand('copy');
+                    document.body.removeChild(textarea);
+                    this.$message.success('已复制到剪贴板');
+                },
+
+                getStatusType(status) {
+                    const typeMap = {
+                        'DRAFT': 'info',
+                        'SPEC_GENERATING': 'warning',
+                        'SPEC_GENERATED': 'success',
+                        'TECH_DESIGN_GENERATING': 'warning',
+                        'TECH_DESIGN_GENERATED': 'success',
+                        'TECH_DESIGN_APPROVED': 'success',
+                        'TASK_LIST_GENERATING': 'warning',
+                        'TASK_LIST_GENERATED': 'success',
+                        'CODE_GENERATING': 'warning',
+                        'COMPLETED': 'success',
+                        'FAILED': 'danger',
+                        'CANCELLED': 'info'
+                    };
+                    return typeMap[status] || 'info';
+                },
+
+                getStatusText(status) {
+                    const textMap = {
+                        'DRAFT': '草稿',
+                        'SPEC_GENERATING': '生成规格文档中',
+                        'SPEC_GENERATED': '规格文档已生成',
+                        'TECH_DESIGN_GENERATING': '生成技术方案中',
+                        'TECH_DESIGN_GENERATED': '技术方案已生成',
+                        'TECH_DESIGN_APPROVED': '技术方案已批准',
+                        'TASK_LIST_GENERATING': '生成任务列表中',
+                        'TASK_LIST_GENERATED': '任务列表已生成',
+                        'CODE_GENERATING': '代码生成中',
+                        'COMPLETED': '已完成',
+                        'FAILED': '失败',
+                        'CANCELLED': '已取消'
+                    };
+                    return textMap[status] || status;
+                },
+
+                getTaskStatusType(status) {
+                    const typeMap = {
+                        'PENDING': 'info',
+                        'IN_PROGRESS': 'warning',
+                        'COMPLETED': 'success',
+                        'FAILED': 'danger',
+                        'SKIPPED': 'info'
+                    };
+                    return typeMap[status] || 'info';
+                },
+
+                getTaskStatusText(status) {
+                    const textMap = {
+                        'PENDING': '待执行',
+                        'IN_PROGRESS': '进行中',
+                        'COMPLETED': '已完成',
+                        'FAILED': '失败',
+                        'SKIPPED': '已跳过'
+                    };
+                    return textMap[status] || status;
+                },
+
+                getProgressColor(percentage) {
+                    if (percentage < 30) return '#f56c6c';
+                    if (percentage < 70) return '#e6a23c';
+                    return '#67c23a';
+                },
+
+                getWorkflowStep(status) {
+                    const stepMap = {
+                        'DRAFT': 0,
+                        'SPEC_GENERATING': 0,
+                        'SPEC_GENERATED': 1,
+                        'TECH_DESIGN_GENERATING': 1,
+                        'TECH_DESIGN_GENERATED': 2,
+                        'TECH_DESIGN_APPROVED': 2,
+                        'TASK_LIST_GENERATING': 2,
+                        'TASK_LIST_GENERATED': 3,
+                        'CODE_GENERATING': 3,
+                        'COMPLETED': 4,
+                        'FAILED': -1,
+                        'CANCELLED': -1
+                    };
+                    return stepMap[status] || 0;
+                },
+
+                canContinue(workflow) {
+                    return !['COMPLETED', 'FAILED', 'CANCELLED'].includes(workflow.status);
+                },
+
+                canCancel(workflow) {
+                    return !['COMPLETED', 'FAILED', 'CANCELLED'].includes(workflow.status);
+                },
+
+                formatDate(dateStr) {
+                    if (!dateStr) return '-';
+                    const date = new Date(dateStr);
+                    return date.toLocaleString('zh-CN');
+                }
+            }
+        });
+    </script>
+</body>
+</html>

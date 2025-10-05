@@ -4,86 +4,57 @@ import com.example.gitreview.domain.workflow.model.TaskStatus;
 import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
-import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
-import java.util.Objects;
 
 /**
- * 任务值对象
+ * Task value object.
  *
  * @author zhourui(V33215020)
- * @since 2025/10/04
+ * @since 2025/10/05
  */
 public class Task {
+    private String id;
+    private String title;
+    private String description;
+    private TaskStatus status;
+    private String errorMessage;
+    private String generatedCode;
+    private String targetFile;
+    private List<String> dependencies;
 
-    private final String id;
-    private final String title;
-    private final String description;
-    private final TaskStatus status;
-    private final List<String> dependencies;
-    private final String targetFile;
-    private final String generatedCode;
-    private final LocalDateTime completedAt;
+    // 默认构造函数供Jackson使用
+    public Task() {
+        this.dependencies = new ArrayList<>();
+    }
+
+    public Task(String id, String description) {
+        this.id = id;
+        this.title = description;
+        this.description = description;
+        this.status = TaskStatus.PENDING;
+        this.dependencies = new ArrayList<>();
+    }
 
     @JsonCreator
-    public Task(@JsonProperty("id") String id,
-                @JsonProperty("title") String title,
-                @JsonProperty("description") String description,
-                @JsonProperty("status") TaskStatus status,
-                @JsonProperty("dependencies") List<String> dependencies,
-                @JsonProperty("targetFile") String targetFile,
-                @JsonProperty("generatedCode") String generatedCode,
-                @JsonProperty("completedAt") LocalDateTime completedAt) {
+    private Task(
+            @JsonProperty("id") String id,
+            @JsonProperty("title") String title,
+            @JsonProperty("description") String description,
+            @JsonProperty("status") TaskStatus status,
+            @JsonProperty("errorMessage") String errorMessage,
+            @JsonProperty("generatedCode") String generatedCode,
+            @JsonProperty("targetFile") String targetFile,
+            @JsonProperty("dependencies") List<String> dependencies) {
         this.id = id;
         this.title = title;
         this.description = description;
         this.status = status;
-        this.dependencies = dependencies;
-        this.targetFile = targetFile;
+        this.errorMessage = errorMessage;
         this.generatedCode = generatedCode;
-        this.completedAt = completedAt;
-    }
-
-    /**
-     * 完成任务
-     *
-     * @param code 生成的代码
-     * @return 已完成的任务
-     */
-    public Task complete(String code) {
-        return new Task(this.id, this.title, this.description, TaskStatus.COMPLETED,
-                this.dependencies, this.targetFile, code, LocalDateTime.now());
-    }
-
-    /**
-     * 标记任务失败
-     *
-     * @param reason 失败原因
-     * @return 失败的任务
-     */
-    public Task fail(String reason) {
-        return new Task(this.id, this.title, this.description, TaskStatus.FAILED,
-                this.dependencies, this.targetFile, this.generatedCode, LocalDateTime.now());
-    }
-
-    /**
-     * 检查任务是否可执行
-     *
-     * @param allTasks 所有任务列表
-     * @return 如果所有依赖任务已完成则返回true
-     */
-    public boolean isExecutable(List<Task> allTasks) {
-        if (this.status != TaskStatus.PENDING) {
-            return false;
-        }
-
-        if (this.dependencies == null || this.dependencies.isEmpty()) {
-            return true;
-        }
-
-        return this.dependencies.stream()
-                .allMatch(depId -> allTasks.stream()
-                        .anyMatch(t -> t.id.equals(depId) && t.status == TaskStatus.COMPLETED));
+        this.targetFile = targetFile;
+        this.dependencies = dependencies != null ? new ArrayList<>(dependencies) : new ArrayList<>();
     }
 
     public String getId() {
@@ -102,32 +73,40 @@ public class Task {
         return status;
     }
 
-    public List<String> getDependencies() {
-        return dependencies;
-    }
-
-    public String getTargetFile() {
-        return targetFile;
+    public String getErrorMessage() {
+        return errorMessage;
     }
 
     public String getGeneratedCode() {
         return generatedCode;
     }
 
-    public LocalDateTime getCompletedAt() {
-        return completedAt;
+    public String getTargetFile() {
+        return targetFile;
     }
 
-    @Override
-    public boolean equals(Object o) {
-        if (this == o) return true;
-        if (o == null || getClass() != o.getClass()) return false;
-        Task task = (Task) o;
-        return Objects.equals(id, task.id);
+    public List<String> getDependencies() {
+        return Collections.unmodifiableList(dependencies);
     }
 
-    @Override
-    public int hashCode() {
-        return Objects.hash(id);
+    public void markInProgress() {
+        this.status = TaskStatus.IN_PROGRESS;
+    }
+
+    public void markCompleted() {
+        this.status = TaskStatus.COMPLETED;
+    }
+
+    public void markFailed(String errorMessage) {
+        this.status = TaskStatus.FAILED;
+        this.errorMessage = errorMessage;
+    }
+
+    public Task complete(String code) {
+        return new Task(this.id, this.title, this.description, TaskStatus.COMPLETED, null, code, this.targetFile, this.dependencies);
+    }
+
+    public Task fail(String error) {
+        return new Task(this.id, this.title, this.description, TaskStatus.FAILED, error, null, this.targetFile, this.dependencies);
     }
 }

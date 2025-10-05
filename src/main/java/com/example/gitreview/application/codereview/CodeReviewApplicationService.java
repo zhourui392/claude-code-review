@@ -295,8 +295,9 @@ public class CodeReviewApplicationService {
                                      String baseBranch, String targetBranch, Long repositoryId) {
         String workspaceId = null;
         try {
-            // 创建临时工作空间（TTL 60 分钟，足够审查完成）
-            workspaceId = workspaceManager.createWorkspace("code-review", 60);
+            // 创建临时工作空间（用于代码审查）
+            workspaceId = "code-review-" + System.currentTimeMillis();
+            workspaceManager.createWorkspace(workspaceId);
 
             // 克隆仓库到工作空间
             java.io.File repoDir = gitOperationPort.cloneRepository(repositoryUrl, username, password, targetBranch);
@@ -328,7 +329,11 @@ public class CodeReviewApplicationService {
         } catch (Exception e) {
             // 如果创建失败，清理工作空间
             if (workspaceId != null) {
-                workspaceManager.cleanupWorkspace(workspaceId);
+                try {
+                    workspaceManager.cleanupWorkspace(workspaceManager.getWorkspaceFile(workspaceId));
+                } catch (Exception cleanupEx) {
+                    logger.error("清理工作空间失败: {}", workspaceId, cleanupEx);
+                }
             }
             throw new RuntimeException("Failed to generate code diff: " + e.getMessage(), e);
         }

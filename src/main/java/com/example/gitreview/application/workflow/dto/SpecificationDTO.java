@@ -4,34 +4,32 @@ import java.time.LocalDateTime;
 import java.util.List;
 
 /**
- * 规格文档响应DTO
+ * Specification DTO.
  *
  * @author zhourui(V33215020)
- * @since 2025/10/04
+ * @since 2025/10/05
  */
 public class SpecificationDTO {
-
-    private String content;
+    private String generatedContent;
     private String prdContent;
     private List<String> documentPaths;
     private LocalDateTime generatedAt;
 
-    public SpecificationDTO() {
-    }
+    public SpecificationDTO() {}
 
-    public SpecificationDTO(String content, String prdContent, List<String> documentPaths, LocalDateTime generatedAt) {
-        this.content = content;
+    public SpecificationDTO(String generatedContent, String prdContent, List<String> documentPaths, LocalDateTime generatedAt) {
+        this.generatedContent = generatedContent;
         this.prdContent = prdContent;
         this.documentPaths = documentPaths;
         this.generatedAt = generatedAt;
     }
 
-    public String getContent() {
-        return content;
+    public String getGeneratedContent() {
+        return generatedContent;
     }
 
-    public void setContent(String content) {
-        this.content = content;
+    public void setGeneratedContent(String generatedContent) {
+        this.generatedContent = generatedContent;
     }
 
     public String getPrdContent() {
