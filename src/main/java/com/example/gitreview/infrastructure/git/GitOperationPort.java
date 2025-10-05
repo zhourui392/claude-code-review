@@ -105,4 +105,16 @@ public interface GitOperationPort {
      * @return 相对路径
      */
     String getRelativePath(File repositoryDir, File file);
+
+    /**
+     * 提交并推送代码到远程仓库
+     * @param repositoryDir 仓库目录
+     * @param commitMessage 提交信息
+     * @param username 用户名
+     * @param password 密码
+     * @throws GitAPIException Git操作异常
+     * @throws IOException IO异常
+     */
+    void commitAndPush(File repositoryDir, String commitMessage, String username, String password)
+            throws GitAPIException, IOException;
 }

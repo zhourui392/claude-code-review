@@ -7,7 +7,6 @@ import com.example.gitreview.domain.testgen.model.valueobject.JavaClass;
 import com.example.gitreview.domain.testgen.model.valueobject.TestTemplate;
 import com.example.gitreview.domain.testgen.service.TestGenerationDomainService;
 import com.example.gitreview.domain.shared.model.aggregate.Repository;
-import com.example.gitreview.infrastructure.claude.ClaudeGitService;
 import com.example.gitreview.infrastructure.claude.ClaudeQueryPort;
 import com.example.gitreview.infrastructure.claude.ClaudeQueryResponse;
 import com.example.gitreview.infrastructure.git.GitCommitService;
@@ -58,9 +57,6 @@ public class TestGenerationController {
 
     @Autowired
     private GitCommitService gitCommitService;
-
-    @Autowired
-    private ClaudeGitService claudeGitService;
 
     // 任务状态跟踪
     private final AtomicLong taskIdGenerator = new AtomicLong();
@@ -282,59 +278,27 @@ public class TestGenerationController {
                 }
             }
 
-            // 如果有成功生成的测试，提交代码
+            // 如果有成功生成的测试，提交并推送代码
             if (successCount > 0) {
-                updateTaskStatus(taskId, "COMMITTING", 95, "正在提交代码...");
+                updateTaskStatus(taskId, "COMMITTING", 95, "正在提交并推送代码...");
 
                 try {
-                    // 使用标准Git命令提交（不使用Claude CLI）
-                    ProcessBuilder gitAdd = new ProcessBuilder("git", "add", ".");
-                    gitAdd.directory(repoDir);
-                    gitAdd.redirectErrorStream(true);
-                    Process addProcess = gitAdd.start();
-
-                    StringBuilder gitOutput = new StringBuilder();
-                    try (java.io.BufferedReader reader = new java.io.BufferedReader(
-                            new java.io.InputStreamReader(addProcess.getInputStream()))) {
-                        String line;
-                        while ((line = reader.readLine()) != null) {
-                            gitOutput.append(line).append("\n");
-                        }
-                    }
-
-                    int addExitCode = addProcess.waitFor();
-                    logger.info("git add exit code: {}, output: {}", addExitCode, gitOutput);
-
-                    // Git commit
                     String commitMessage = buildBatchCommitMessage(classNames, successCount, gateId);
-                    ProcessBuilder gitCommit = new ProcessBuilder("git", "commit", "-m", commitMessage);
-                    gitCommit.directory(repoDir);
-                    gitCommit.redirectErrorStream(true);
-                    Process commitProcess = gitCommit.start();
 
-                    gitOutput = new StringBuilder();
-                    try (java.io.BufferedReader reader = new java.io.BufferedReader(
-                            new java.io.InputStreamReader(commitProcess.getInputStream()))) {
-                        String line;
-                        while ((line = reader.readLine()) != null) {
-                            gitOutput.append(line).append("\n");
-                        }
-                    }
+                    // 使用JGit提交并推送
+                    gitOperationPort.commitAndPush(
+                            repoDir,
+                            commitMessage,
+                            repository.getUsername(),
+                            repository.getEncryptedPassword()
+                    );
 
-                    int commitExitCode = commitProcess.waitFor();
-                    logger.info("git commit exit code: {}, output: {}", commitExitCode, gitOutput);
-
-                    if (addExitCode == 0 && commitExitCode == 0) {
-                        allOutput.append("\n✓ Git提交成功\n").append(gitOutput);
-                        logger.info("✓ Successfully committed {} test files", successCount);
-                    } else {
-                        allOutput.append("\n⚠ Git提交失败 (exit: " + commitExitCode + "): ").append(gitOutput);
-                        logger.warn("Git commit failed with exit code: {}", commitExitCode);
-                    }
+                    allOutput.append("\n✓ Git提交并推送成功: 已提交 ").append(successCount).append(" 个测试文件\n");
+                    logger.info("✓ Successfully committed and pushed {} test files", successCount);
 
                 } catch (Exception e) {
-                    logger.error("Failed to commit changes", e);
-                    allOutput.append("\n✗ Git提交失败: ").append(e.getMessage());
+                    logger.error("Failed to commit and push changes", e);
+                    allOutput.append("\n✗ Git提交推送失败: ").append(e.getMessage()).append("\n");
                 }
             }
 
@@ -681,16 +645,19 @@ public class TestGenerationController {
                 // 构建提交信息
                 String commitMessage = gitCommitService.buildCommitMessage(className, gateId);
 
-                // 使用Claude CLI提交并推送
-                ClaudeGitService.GitOperationResult gitResult =
-                        claudeGitService.commitAndPush(repoDir, commitMessage, true);
-
-                if (gitResult.isSuccess()) {
+                // 使用JGit提交并推送
+                try {
+                    gitOperationPort.commitAndPush(
+                            repoDir,
+                            commitMessage,
+                            repository.getUsername(),
+                            repository.getEncryptedPassword()
+                    );
                     logger.info("Successfully committed and pushed test code");
-                    output += "\n\nGit操作成功:\n" + gitResult.getOutput();
-                } else {
-                    logger.warn("Failed to commit and push: {}", gitResult.getMessage());
-                    output += "\n\nGit操作失败: " + gitResult.getMessage();
+                    output += "\n\nGit操作成功: 代码已提交并推送到远程仓库";
+                } catch (Exception e) {
+                    logger.warn("Failed to commit and push: {}", e.getMessage());
+                    output += "\n\nGit操作失败: " + e.getMessage();
                 }
             }
 

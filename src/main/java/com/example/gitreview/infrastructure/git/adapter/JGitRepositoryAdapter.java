@@ -462,4 +462,51 @@ public class JGitRepositoryAdapter implements GitOperationPort {
             return path.contains(pattern);
         }
     }
+
+    @Override
+    public void commitAndPush(File repositoryDir, String commitMessage, String username, String password)
+            throws GitAPIException, IOException {
+        logger.info("Committing and pushing changes in repository: {}", repositoryDir.getAbsolutePath());
+
+        try (Git git = Git.open(repositoryDir)) {
+            git.add()
+                .addFilepattern(".")
+                .call();
+            logger.info("Added all changes to staging area");
+
+            RevCommit commit = git.commit()
+                .setMessage(commitMessage)
+                .call();
+            logger.info("Created commit: {} - {}", commit.getId().getName(), commit.getShortMessage());
+
+            UsernamePasswordCredentialsProvider credentials = new UsernamePasswordCredentialsProvider(
+                username, password);
+
+            try {
+                git.push()
+                    .setCredentialsProvider(credentials)
+                    .setForce(false)
+                    .call();
+                logger.info("Successfully pushed changes to remote repository");
+            } catch (org.eclipse.jgit.api.errors.RefNotAdvertisedException e) {
+                logger.error("Push rejected - remote reference not found: {}", e.getMessage());
+                throw new IOException("Push failed: remote branch does not exist", e);
+            } catch (org.eclipse.jgit.api.errors.InvalidRemoteException e) {
+                logger.error("Push rejected - invalid remote: {}", e.getMessage());
+                throw new IOException("Push failed: invalid remote configuration", e);
+            } catch (org.eclipse.jgit.errors.TransportException e) {
+                if (e.getMessage() != null &&
+                    (e.getMessage().contains("rejected") || e.getMessage().contains("non-fast-forward"))) {
+                    logger.error("Push rejected - remote has newer commits. Please pull first: {}", e.getMessage());
+                    throw new IOException("Push rejected: remote branch has been updated. " +
+                            "Please pull the latest changes and try again", e);
+                }
+                throw e;
+            }
+
+        } catch (GitAPIException | IOException e) {
+            logger.error("Failed to commit and push changes: {}", e.getMessage(), e);
+            throw e;
+        }
+    }
 }

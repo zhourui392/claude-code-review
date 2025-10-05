@@ -3,6 +3,8 @@ package com.example.gitreview.exception;
 import com.example.gitreview.domain.shared.exception.BusinessRuleException;
 import com.example.gitreview.domain.shared.exception.ResourceNotFoundException;
 import com.example.gitreview.domain.shared.exception.ValidationException;
+import com.example.gitreview.domain.workflow.exception.InvalidWorkflowTransitionException;
+import com.example.gitreview.domain.workflow.exception.WorkflowNotFoundException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ControllerAdvice;
@@ -108,6 +110,41 @@ public class GlobalExceptionHandler {
         response.put("status", "VALIDATION_FAILED");
         response.put("message", "Request validation failed");
         response.put("error", e.getMessage());
+        response.put("timestamp", System.currentTimeMillis());
+
+        return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
+    }
+
+    /**
+     * 处理工作流未找到异常
+     */
+    @ExceptionHandler(WorkflowNotFoundException.class)
+    public ResponseEntity<Map<String, Object>> handleWorkflowNotFoundException(WorkflowNotFoundException e) {
+        logger.warn("Workflow not found: workflowId={}", e.getWorkflowId());
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("status", "NOT_FOUND");
+        response.put("message", "Workflow not found");
+        response.put("error", e.getMessage());
+        response.put("workflowId", e.getWorkflowId());
+        response.put("timestamp", System.currentTimeMillis());
+
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(response);
+    }
+
+    /**
+     * 处理非法工作流状态转换异常
+     */
+    @ExceptionHandler(InvalidWorkflowTransitionException.class)
+    public ResponseEntity<Map<String, Object>> handleInvalidWorkflowTransitionException(InvalidWorkflowTransitionException e) {
+        logger.warn("Invalid workflow transition: from={} to={}", e.getFrom(), e.getTo());
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("status", "INVALID_TRANSITION");
+        response.put("message", "Invalid workflow state transition");
+        response.put("error", e.getMessage());
+        response.put("fromStatus", e.getFrom().name());
+        response.put("toStatus", e.getTo().name());
         response.put("timestamp", System.currentTimeMillis());
 
         return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);

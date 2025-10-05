@@ -62,6 +62,29 @@ public class AsyncConfig implements AsyncConfigurer {
     }
 
     /**
+     * 工作流异步执行器
+     * 配置专用的线程池用于工作流任务
+     */
+    @Bean(name = "workflowExecutor")
+    public Executor workflowExecutor() {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+
+        executor.setCorePoolSize(5);
+        executor.setMaxPoolSize(10);
+        executor.setQueueCapacity(50);
+        executor.setThreadNamePrefix("workflow-");
+        executor.setRejectedExecutionHandler(new java.util.concurrent.ThreadPoolExecutor.CallerRunsPolicy());
+        executor.setWaitForTasksToCompleteOnShutdown(true);
+        executor.setAwaitTerminationSeconds(60);
+        executor.initialize();
+
+        logger.info("Workflow executor initialized: corePoolSize={}, maxPoolSize={}, queueCapacity={}",
+                executor.getCorePoolSize(), executor.getMaxPoolSize(), executor.getQueueCapacity());
+
+        return executor;
+    }
+
+    /**
      * 默认异步执行器
      */
     @Override
