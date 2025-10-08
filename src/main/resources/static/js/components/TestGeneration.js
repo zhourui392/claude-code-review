@@ -260,23 +260,67 @@ Vue.component('test-generation', {
         },
 
         updateProgress(status) {
-            const stepMap = {
-                'ANALYZING': { step: 0, message: '正在分析Java类结构...', percentage: 25 },
-                'GENERATING': { step: 1, message: '正在生成测试代码...', percentage: 50 },
-                'COMPILING': { step: 2, message: '正在验证编译...', percentage: 75 },
-                'TESTING': { step: 3, message: '正在执行测试...', percentage: 90 },
-                'COMPLETED': { step: 4, message: '生成完成', percentage: 100 }
+            // 后端批量接口返回: { status: PENDING|IN_PROGRESS|COMPLETED|FAILED, progress: 0-100, message }
+            // 兼容旧单任务状态: ANALYZING/GENERATING/COMPILING/TESTING/COMPLETED
+            const s = status.status;
+            const serverProgress = typeof status.progress === 'number' ? status.progress : undefined;
+
+            // 基于百分比推断前端步骤
+            const stepFromPercent = (pct) => {
+                if (pct >= 100) return 4;     // 完成
+                if (pct >= 90) return 3;      // 执行测试
+                if (pct >= 75) return 2;      // 验证编译
+                if (pct >= 50) return 1;      // 生成测试
+                return 0;                     // 分析/初始化
             };
 
-            const progress = stepMap[status.status] || { step: 0, message: status.message, percentage: 0 };
+            // 默认消息
+            let message = status.message || '';
+            let percentage = serverProgress !== undefined ? serverProgress : this.testGenProgress.percentage;
+            let step = stepFromPercent(percentage);
 
-            this.testGenProgress.currentStep = progress.step;
-            this.testGenProgress.percentage = progress.percentage;
-            this.testGenProgress.message = progress.message;
-
-            if (status.status === 'COMPLETED') {
+            // 按状态细化（优先使用批量状态）
+            if (s === 'PENDING') {
+                step = 0;
+                if (!message) message = '任务已创建，等待开始';
+                if (percentage === undefined) percentage = 0;
+                this.testGenProgress.status = '';
+            } else if (s === 'IN_PROGRESS') {
+                if (!message) message = '正在生成与验证...';
+                this.testGenProgress.status = 'active';
+            } else if (s === 'COMPLETED') {
+                step = 4;
+                percentage = 100;
+                if (!message) message = '生成完成';
                 this.testGenProgress.status = 'success';
+            } else if (s === 'FAILED') {
+                // 失败保留服务器进度，但标红
+                if (!message) message = '生成失败';
+                this.testGenProgress.status = 'exception';
+            } else {
+                // 兼容旧单任务状态映射
+                const legacy = {
+                    'ANALYZING': { step: 0, message: '正在分析Java类结构...', percentage: 25 },
+                    'GENERATING': { step: 1, message: '正在生成测试代码...', percentage: 50 },
+                    'COMPILING': { step: 2, message: '正在验证编译...', percentage: 75 },
+                    'TESTING': { step: 3, message: '正在执行测试...', percentage: 90 },
+                    'COMPLETED': { step: 4, message: '生成完成', percentage: 100 }
+                }[s];
+                if (legacy) {
+                    step = legacy.step;
+                    message = legacy.message;
+                    percentage = legacy.percentage;
+                    if (s === 'COMPLETED') this.testGenProgress.status = 'success';
+                } else {
+                    // 未知状态：仅显示服务器消息
+                    if (!message) message = '处理中...';
+                    this.testGenProgress.status = 'active';
+                }
             }
+
+            this.testGenProgress.currentStep = step;
+            this.testGenProgress.percentage = Math.max(0, Math.min(100, Number(percentage) || 0));
+            this.testGenProgress.message = message;
         },
 
         async loadFinalResult(taskId) {

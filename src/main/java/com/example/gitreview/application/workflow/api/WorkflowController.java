@@ -94,7 +94,7 @@ public class WorkflowController {
      */
     @GetMapping("/{id}/spec")
     public ResponseEntity<SpecificationDTO> getSpecification(@PathVariable Long id) {
-        logger.info("获取规格文档，工作流ID: {}", id);
+//        logger.info("获取规格文档，工作流ID: {}", id);
         SpecificationDTO spec = workflowApplicationService.getSpecification(id);
         return ResponseEntity.ok(spec);
     }

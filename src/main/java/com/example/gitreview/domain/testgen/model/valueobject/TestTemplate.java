@@ -1,6 +1,8 @@
 package com.example.gitreview.domain.testgen.model.valueobject;
 
 import com.example.gitreview.domain.shared.exception.ValidationException;
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonProperty;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -44,8 +46,13 @@ public class TestTemplate {
         }
     }
 
-    public TestTemplate(TestType testType, int qualityLevel, String mockFramework,
-                       String assertionFramework, List<String> additionalDependencies) {
+    @JsonCreator
+    public TestTemplate(
+            @JsonProperty("testType") TestType testType,
+            @JsonProperty("qualityLevel") int qualityLevel,
+            @JsonProperty("mockFramework") String mockFramework,
+            @JsonProperty("assertionFramework") String assertionFramework,
+            @JsonProperty("additionalDependencies") List<String> additionalDependencies) {
         this.testType = Objects.requireNonNull(testType, "Test type cannot be null");
         this.qualityLevel = validateQualityLevel(qualityLevel);
         this.mockFramework = validateFramework(mockFramework, "mockito");

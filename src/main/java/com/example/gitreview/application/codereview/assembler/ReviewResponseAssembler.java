@@ -172,13 +172,16 @@ public class ReviewResponseAssembler {
      * 转换单个问题
      */
     private CodeReviewResponse.IssueInfo convertIssue(ReviewResult.Issue issue) {
+        String fixApproach = issue.getFixSuggestion() != null
+            ? issue.getFixSuggestion().getFixApproach()
+            : null;
         return new CodeReviewResponse.IssueInfo(
             issue.getFilePath(),
             issue.getLineNumber(),
             issue.getSeverity().name(),
             issue.getCategory(),
             issue.getDescription(),
-            issue.getSuggestion()
+            fixApproach
         );
     }
 

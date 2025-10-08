@@ -43,6 +43,17 @@ public interface ClaudeCodePort {
                                          String errorOutput, String taskDescription);
 
     /**
+     * 使用 Claude Code CLI 执行 Git 提交
+     *
+     * @param repoDir 仓库目录
+     * @param commitMessageExample 提交信息示例模板
+     * @param contextDescription 提交上下文描述
+     * @return 提交结果
+     */
+    ClaudeCodeResult gitCommitAndPush(File repoDir, String commitMessageExample,
+                                      String contextDescription);
+
+    /**
      * 获取 Claude Code CLI 版本
      *
      * @return 版本信息

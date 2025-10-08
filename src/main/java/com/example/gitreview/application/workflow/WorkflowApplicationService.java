@@ -166,7 +166,7 @@ public class WorkflowApplicationService {
      */
     @Transactional(readOnly = true)
     public SpecificationDTO getSpecification(Long workflowId) {
-        logger.debug("获取规格文档，工作流ID: {}", workflowId);
+//        logger.debug("获取规格文档，工作流ID: {}", workflowId);
 
         DevelopmentWorkflow workflow = loadWorkflow(workflowId);
 

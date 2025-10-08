@@ -13,3 +13,6 @@ data
 verify-*.bat
 *VERIFICATION*.md
 nul
+node_modules
+package-lock.json
+package.json

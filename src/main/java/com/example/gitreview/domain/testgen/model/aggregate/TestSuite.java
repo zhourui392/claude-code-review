@@ -6,6 +6,8 @@ import com.example.gitreview.domain.testgen.model.valueobject.JavaClass;
 import com.example.gitreview.domain.testgen.model.valueobject.TestTemplate;
 import com.example.gitreview.domain.shared.exception.BusinessRuleException;
 import com.example.gitreview.domain.shared.exception.ValidationException;
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonProperty;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -56,8 +58,15 @@ public class TestSuite {
         private final String executionReport;
         private final LocalDateTime executionTime;
 
-        public TestExecutionResult(int totalTests, int passedTests, int failedTests, int skippedTests,
-                                 double coveragePercentage, String executionReport) {
+        @JsonCreator
+        public TestExecutionResult(
+                @JsonProperty("totalTests") int totalTests,
+                @JsonProperty("passedTests") int passedTests,
+                @JsonProperty("failedTests") int failedTests,
+                @JsonProperty("skippedTests") int skippedTests,
+                @JsonProperty("coveragePercentage") double coveragePercentage,
+                @JsonProperty("executionReport") String executionReport
+        ) {
             this.totalTests = totalTests;
             this.passedTests = passedTests;
             this.failedTests = failedTests;

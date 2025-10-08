@@ -203,27 +203,19 @@ Vue.component('code-review', {
             this.exportLoading = true;
             try {
                 const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
-                const filename = \`review-\${this.currentReviewId}-\${timestamp}.md\`;
+                const filename = 'review-' + this.currentReviewId + '-' + timestamp + '.md';
                 const repoName = this.repositories.find(r => r.id === this.reviewForm.repositoryId)?.name || 'Unknown';
-                const markdown = \`# 代码审查报告
-
-## 基本信息
-
-- **仓库**: \${repoName}
-- **分支**: \${this.reviewForm.baseBranch} → \${this.reviewForm.targetBranch}
-- **审查时间**: \${new Date().toLocaleString('zh-CN')}
-
----
-
-## 审查结果
-
-\${this.reviewResult}
-
----
-
-**报告生成时间**: \${new Date().toLocaleString('zh-CN')}
-**生成工具**: Git Review Service
-\`;
+                const markdown = '# 代码审查报告\n\n' +
+                    '## 基本信息\n\n' +
+                    '- **仓库**: ' + repoName + '\n' +
+                    '- **分支**: ' + this.reviewForm.baseBranch + ' → ' + this.reviewForm.targetBranch + '\n' +
+                    '- **审查时间**: ' + new Date().toLocaleString('zh-CN') + '\n\n' +
+                    '---\n\n' +
+                    '## 审查结果\n\n' +
+                    this.reviewResult + '\n\n' +
+                    '---\n\n' +
+                    '**报告生成时间**: ' + new Date().toLocaleString('zh-CN') + '\n' +
+                    '**生成工具**: Git Review Service\n';
                 Utils.downloadFile(markdown, filename, 'text/markdown;charset=utf-8');
                 this.$message.success('Markdown报告已导出');
             } catch (error) {
@@ -242,7 +234,7 @@ Vue.component('code-review', {
             this.exportLoading = true;
             try {
                 const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, -5);
-                const filename = \`review-\${this.currentReviewId}-\${timestamp}.json\`;
+                const filename = 'review-' + this.currentReviewId + '-' + timestamp + '.json';
                 const repoName = this.repositories.find(r => r.id === this.reviewForm.repositoryId)?.name || 'Unknown';
                 const jsonData = {
                     reviewId: this.currentReviewId,

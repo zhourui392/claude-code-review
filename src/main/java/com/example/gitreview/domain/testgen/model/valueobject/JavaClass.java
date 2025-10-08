@@ -1,6 +1,8 @@
 package com.example.gitreview.domain.testgen.model.valueobject;
 
 import com.example.gitreview.domain.shared.exception.ValidationException;
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonProperty;
 
 import java.util.List;
 import java.util.Objects;
@@ -17,7 +19,12 @@ public class JavaClass {
     private final List<JavaMethod> methods;
     private final List<JavaField> fields;
 
-    public JavaClass(String simpleName, String packageName, List<JavaMethod> methods, List<JavaField> fields) {
+    @JsonCreator
+    public JavaClass(
+            @JsonProperty("simpleName") String simpleName,
+            @JsonProperty("packageName") String packageName,
+            @JsonProperty("methods") List<JavaMethod> methods,
+            @JsonProperty("fields") List<JavaField> fields) {
         this.simpleName = validateSimpleName(simpleName);
         this.packageName = validatePackageName(packageName);
         this.methods = methods != null ? new ArrayList<>(methods) : new ArrayList<>();
@@ -274,8 +281,14 @@ public class JavaClass {
         private final boolean isStatic;
         private final boolean isAbstract;
 
-        public JavaMethod(String name, String returnType, List<String> parameterTypes,
-                         boolean isPublic, boolean isStatic, boolean isAbstract) {
+        @JsonCreator
+        public JavaMethod(
+                @JsonProperty("name") String name,
+                @JsonProperty("returnType") String returnType,
+                @JsonProperty("parameterTypes") List<String> parameterTypes,
+                @JsonProperty("public") boolean isPublic,
+                @JsonProperty("static") boolean isStatic,
+                @JsonProperty("abstract") boolean isAbstract) {
             this.name = name;
             this.returnType = returnType;
             this.parameterTypes = parameterTypes != null ? new ArrayList<>(parameterTypes) : new ArrayList<>();
@@ -341,7 +354,13 @@ public class JavaClass {
         private final boolean isStatic;
         private final boolean isFinal;
 
-        public JavaField(String name, String type, boolean isPublic, boolean isStatic, boolean isFinal) {
+        @JsonCreator
+        public JavaField(
+                @JsonProperty("name") String name,
+                @JsonProperty("type") String type,
+                @JsonProperty("public") boolean isPublic,
+                @JsonProperty("static") boolean isStatic,
+                @JsonProperty("final") boolean isFinal) {
             this.name = name;
             this.type = type;
             this.isPublic = isPublic;

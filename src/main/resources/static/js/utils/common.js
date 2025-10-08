@@ -27,6 +27,15 @@ const Utils = {
     },
 
     renderMarkdown(content) {
-        return marked.parse(content || '');
+        if (typeof marked === 'undefined') {
+            console.error('marked.js library not loaded');
+            return content || '';
+        }
+        try {
+            return marked.parse(content || '');
+        } catch (error) {
+            console.error('Markdown render error:', error);
+            return content || '';
+        }
     }
 };
