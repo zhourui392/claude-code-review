@@ -32,6 +32,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.List;
+import java.util.ArrayList;
 import java.util.Map;
 import java.util.HashMap;
 import java.util.Optional;
@@ -579,6 +580,20 @@ public class TestGenerationApplicationService {
                                                String testType, Integer qualityLevel, String gateId, String requirement) {
         long start = System.currentTimeMillis();
         java.io.File repoDir = null;
+        
+        // 立即为每个类创建 TestSuite 记录（GENERATING 状态），以便前端能查询到进度
+        List<TestSuite> suites = new ArrayList<>();
+        for (String className : classNames) {
+            TestTemplate template = new TestTemplate(parseTestType(testType),
+                    qualityLevel != null ? qualityLevel : 5, "Mockito", "AssertJ", null);
+            JavaClass target = new JavaClass(className, "", List.of(), List.of());
+            TestSuite suite = new TestSuite(repo.getId(), className + "Tests_" + batchId, "Batch test generation",
+                    target, template, getCurrentUser());
+            suite.startGeneration(); // 状态: GENERATING
+            testSuiteRepository.save(suite);
+            suites.add(suite);
+        }
+        
         try {
             // 克隆仓库
             repoDir = gitOperationPort.cloneRepository(
@@ -589,7 +604,10 @@ public class TestGenerationApplicationService {
             );
 
             int success = 0;
-            for (String className : classNames) {
+            for (int i = 0; i < classNames.size(); i++) {
+                String className = classNames.get(i);
+                TestSuite suite = suites.get(i);
+                
                 try {
                     // 定位源码并读取
                     String classPath = findJavaClassFile(repoDir, className);
@@ -616,22 +634,17 @@ public class TestGenerationApplicationService {
                     }
                     java.nio.file.Files.writeString(testFile.toPath(), testCode, java.nio.charset.StandardCharsets.UTF_8);
 
-                    // 为每个类持久化一个 TestSuite 记录
-                    TestTemplate template = new TestTemplate(parseTestType(testType),
-                            qualityLevel != null ? qualityLevel : 5, "Mockito", "AssertJ", null);
-                    JavaClass target = new JavaClass(className, "", List.of(), List.of());
-                    TestSuite suite = new TestSuite(repo.getId(), className + "Tests_" + batchId, "Batch test generation",
-                            target, template, getCurrentUser());
-                    suite.startGeneration();
+                    // 更新 TestSuite: 添加测试用例但先不标记完成（等编译/测试通过后再完成）
                     suite.addTestCase(new com.example.gitreview.domain.testgen.model.entity.TestCase(
                             "GeneratedByClaude", "Auto generated", 
                             com.example.gitreview.domain.testgen.model.entity.TestCase.TestType.UNIT, "", ""));
-                    suite.completeGeneration();
                     testSuiteRepository.save(suite);
 
                     success++;
                 } catch (Exception ex) {
                     logger.warn("Generate test for {} failed: {}", className, ex.getMessage());
+                    suite.markAsFailed("Generation failed: " + ex.getMessage());
+                    testSuiteRepository.save(suite);
                 }
             }
 
@@ -640,6 +653,14 @@ public class TestGenerationApplicationService {
             boolean testsOk = false;
             
             if (success > 0) {
+                // 更新所有成功生成的 TestSuite 到 VALIDATING 状态
+                for (TestSuite suite : suites) {
+                    if (suite.getStatus() == TestSuite.GenerationStatus.GENERATING) {
+                        suite.startValidation();
+                        testSuiteRepository.save(suite);
+                    }
+                }
+                
                 compilationOk = compileTestsWithClaudeCodeFix(repoDir, maxFixRetries);
                 
                 if (compilationOk) {
@@ -656,8 +677,17 @@ public class TestGenerationApplicationService {
                 tryCommitAndPushTests(repoDir, commitMessage, username, password);
             }
 
-            // 更新本批次的 TestSuite 状态
-            updateBatchStatus(batchId, compilationOk, testsOk);
+            // 更新所有 TestSuite 到最终状态（COMPLETED 或 FAILED）
+            for (TestSuite suite : suites) {
+                if (suite.getStatus() == TestSuite.GenerationStatus.VALIDATING) {
+                    if (compilationOk && testsOk) {
+                        suite.completeGeneration();
+                    } else {
+                        suite.markAsFailed(compilationOk ? "Tests failed" : "Compilation failed");
+                    }
+                    testSuiteRepository.save(suite);
+                }
+            }
 
             long cost = (System.currentTimeMillis() - start) / 1000;
             logger.info("Batch {} finished. success {}/{} in {}s", 
