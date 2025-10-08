@@ -501,31 +501,56 @@ public class TestGenerationApplicationService {
         long failed = suites.stream().filter(s -> s.getStatus() == TestSuite.GenerationStatus.FAILED).count();
         
         // 计算进度和状态
-        final String status;
-        final int progress;
-        final String message;
+        // 前端步骤映射：0-25%=分析源码, 25-50%=生成测试, 50-75%=验证编译, 75-100%=执行测试
+        String statusTemp;
+        int progressTemp;
+        String messageTemp;
         
         if (total == 0) {
-            status = "PENDING";
-            progress = 0;
-            message = "任务已创建，等待开始";
+            // 任务刚创建，还没开始
+            statusTemp = "PENDING";
+            progressTemp = 0;
+            messageTemp = "任务已创建，等待开始";
         } else if (failed > 0) {
-            status = "FAILED";
-            progress = (int) ((completed * 100.0) / total);
-            message = String.format("生成失败: %d/%d 成功", completed, total);
+            // 有失败的任务
+            statusTemp = "FAILED";
+            progressTemp = (int) ((completed * 100.0) / total);
+            messageTemp = String.format("生成失败: %d/%d 成功", completed, total);
         } else if (completed == total) {
-            status = "COMPLETED";
-            progress = 100;
-            message = String.format("生成完成: %d/%d 成功", completed, total);
+            // 全部完成
+            statusTemp = "COMPLETED";
+            progressTemp = 100;
+            messageTemp = String.format("生成完成: %d/%d 成功", completed, total);
         } else {
-            status = "IN_PROGRESS";
-            // 生成中占60%，验证占30%，完成占10%
-            int baseProgress = (int) ((completed * 60.0) / total);
-            int validatingProgress = (int) ((validating * 30.0) / total);
-            int generatingProgress = (int) ((generating * 10.0) / total);
-            progress = Math.min(99, baseProgress + validatingProgress + generatingProgress); // 未完成前最多99%
-            message = String.format("正在生成与验证: %d/%d 完成", completed, total);
+            // 正在进行中
+            statusTemp = "IN_PROGRESS";
+            
+            // 根据任务状态分布推算当前阶段
+            if (generating > 0 && validating == 0 && completed == 0) {
+                // 阶段1: 正在生成测试代码（25-50%）
+                progressTemp = 25 + (int) ((generating * 25.0) / total);
+                messageTemp = String.format("正在生成测试代码: %d/%d", generating, total);
+            } else if (validating > 0) {
+                // 阶段2: 正在验证/测试（50-100%）
+                int completedAndValidating = (int) (completed + validating);
+                progressTemp = 50 + (int) ((completedAndValidating * 50.0) / total);
+                messageTemp = String.format("正在验证与测试: %d/%d 完成", completed, total);
+            } else if (completed > 0 && completed < total) {
+                // 部分完成，其他可能在队列中
+                progressTemp = 50 + (int) ((completed * 50.0) / total);
+                messageTemp = String.format("正在处理: %d/%d 完成", completed, total);
+            } else {
+                // 默认：分析源码阶段（0-25%）
+                progressTemp = 10;
+                messageTemp = "正在分析源码...";
+            }
+            
+            progressTemp = Math.min(99, Math.max(1, progressTemp)); // 确保在1-99%范围内
         }
+        
+        final String status = statusTemp;
+        final int progress = progressTemp;
+        final String message = messageTemp;
         
         return new HashMap<String, Object>() {{
             put("status", status);
