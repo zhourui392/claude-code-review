@@ -500,7 +500,37 @@ public class TestGenerationApplicationService {
         long completed = suites.stream().filter(s -> s.getStatus() == TestSuite.GenerationStatus.COMPLETED).count();
         long failed = suites.stream().filter(s -> s.getStatus() == TestSuite.GenerationStatus.FAILED).count();
         
+        // 计算进度和状态
+        final String status;
+        final int progress;
+        final String message;
+        
+        if (total == 0) {
+            status = "PENDING";
+            progress = 0;
+            message = "任务已创建，等待开始";
+        } else if (failed > 0) {
+            status = "FAILED";
+            progress = (int) ((completed * 100.0) / total);
+            message = String.format("生成失败: %d/%d 成功", completed, total);
+        } else if (completed == total) {
+            status = "COMPLETED";
+            progress = 100;
+            message = String.format("生成完成: %d/%d 成功", completed, total);
+        } else {
+            status = "IN_PROGRESS";
+            // 生成中占60%，验证占30%，完成占10%
+            int baseProgress = (int) ((completed * 60.0) / total);
+            int validatingProgress = (int) ((validating * 30.0) / total);
+            int generatingProgress = (int) ((generating * 10.0) / total);
+            progress = Math.min(99, baseProgress + validatingProgress + generatingProgress); // 未完成前最多99%
+            message = String.format("正在生成与验证: %d/%d 完成", completed, total);
+        }
+        
         return new HashMap<String, Object>() {{
+            put("status", status);
+            put("progress", progress);
+            put("message", message);
             put("batchId", batchId);
             put("total", total);
             put("generating", generating);
