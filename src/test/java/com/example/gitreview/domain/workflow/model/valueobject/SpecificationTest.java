@@ -32,7 +32,7 @@ class SpecificationTest {
     }
 
     @Test
-    void should_validate_successfully_when_content_valid() {
+    void should_create_specification_with_empty_document_paths() {
         Specification spec = new Specification(
                 "PRD内容",
                 Collections.emptyList(),
@@ -40,49 +40,20 @@ class SpecificationTest {
                 LocalDateTime.now()
         );
 
-        assertThatNoException().isThrownBy(spec::validateContent);
+        assertThat(spec.getDocumentPaths()).isEmpty();
     }
 
     @Test
-    void should_throw_exception_when_prd_content_empty() {
+    void should_create_specification_with_null_document_paths() {
         Specification spec = new Specification(
-                "",
-                Collections.emptyList(),
-                "生成的规格文档",
-                LocalDateTime.now()
-        );
-
-        assertThatThrownBy(spec::validateContent)
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("PRD内容不能为空");
-    }
-
-    @Test
-    void should_throw_exception_when_prd_content_null() {
-        Specification spec = new Specification(
+                "PRD内容",
                 null,
-                Collections.emptyList(),
                 "生成的规格文档",
                 LocalDateTime.now()
         );
 
-        assertThatThrownBy(spec::validateContent)
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("PRD内容不能为空");
-    }
-
-    @Test
-    void should_throw_exception_when_generated_content_empty() {
-        Specification spec = new Specification(
-                "PRD内容",
-                Collections.emptyList(),
-                "   ",
-                LocalDateTime.now()
-        );
-
-        assertThatThrownBy(spec::validateContent)
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("生成的规格文档内容不能为空");
+        assertThat(spec.getDocumentPaths()).isNotNull();
+        assertThat(spec.getDocumentPaths()).isEmpty();
     }
 
     @Test

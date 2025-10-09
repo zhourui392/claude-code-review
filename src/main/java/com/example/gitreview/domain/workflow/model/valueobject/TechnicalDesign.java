@@ -4,6 +4,7 @@ import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonProperty;
 
 import java.time.LocalDateTime;
+import java.util.Objects;
 
 /**
  * Technical design value object.
@@ -62,5 +63,19 @@ public class TechnicalDesign {
 
     public TechnicalDesign createNewVersion(String newContent) {
         return new TechnicalDesign(newContent, this.version + 1, false, LocalDateTime.now(), null);
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+        TechnicalDesign that = (TechnicalDesign) o;
+        return version == that.version &&
+                Objects.equals(content, that.content);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(content, version);
     }
 }

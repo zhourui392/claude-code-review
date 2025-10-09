@@ -149,10 +149,9 @@ class WorkflowControllerTest {
 
     @Test
     void should_generate_specification() throws Exception {
-        SpecGenerationRequest request = new SpecGenerationRequest(
-                "PRD内容",
-                Arrays.asList("doc1.md", "doc2.md")
-        );
+        SpecGenerationRequest request = new SpecGenerationRequest();
+        request.setPrdContent("PRD内容");
+        request.setDocumentPaths(Arrays.asList("doc1.md", "doc2.md"));
 
         doNothing().when(workflowApplicationService)
                 .generateSpecification(anyLong(), any(SpecGenerationRequest.class));

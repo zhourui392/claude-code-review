@@ -7,6 +7,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -85,5 +86,19 @@ public class TaskList {
             .filter(task -> task.getStatus() == TaskStatus.PENDING)
             .filter(task -> completedTaskIds.containsAll(task.getDependencies()))
             .collect(Collectors.toList());
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+        TaskList taskList = (TaskList) o;
+        return Objects.equals(content, taskList.content) &&
+                Objects.equals(tasks, taskList.tasks);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(content, tasks);
     }
 }

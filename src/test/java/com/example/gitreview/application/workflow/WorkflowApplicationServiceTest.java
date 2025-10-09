@@ -161,7 +161,7 @@ class WorkflowApplicationServiceTest {
         SpecificationDTO specDTO = workflowApplicationService.getSpecification(workflowId);
 
         assertThat(specDTO).isNotNull();
-        assertThat(specDTO.getContent()).isEqualTo("生成的规格文档");
+        assertThat(specDTO.getGeneratedContent()).isEqualTo("生成的规格文档");
     }
 
     @Test

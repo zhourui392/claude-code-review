@@ -33,9 +33,9 @@ Vue.component('workflow-detail-dialog', {
                         <div class="code-container">
                             <div class="code-header">
                                 <span>spec.md</span>
-                                <el-button size="mini" @click="copyContent(workflow.specification.content)">复制</el-button>
+                                <el-button size="mini" @click="copyContent(workflow.specification.generatedContent)">复制</el-button>
                             </div>
-                            <div class="code-content review-result" v-html="renderMarkdown(workflow.specification.content)"></div>
+                            <div class="code-content review-result" v-html="renderMarkdown(workflow.specification.generatedContent)"></div>
                         </div>
                     </div>
                     <el-empty v-else description="规格文档未生成"></el-empty>

@@ -7,6 +7,7 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * Specification value object.
@@ -51,5 +52,20 @@ public class Specification {
 
     public LocalDateTime getGeneratedAt() {
         return generatedAt;
+    }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+        Specification that = (Specification) o;
+        return Objects.equals(prdContent, that.prdContent) &&
+                Objects.equals(documentPaths, that.documentPaths) &&
+                Objects.equals(generatedContent, that.generatedContent);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(prdContent, documentPaths, generatedContent);
     }
 }

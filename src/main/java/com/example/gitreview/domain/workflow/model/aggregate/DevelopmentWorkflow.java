@@ -28,6 +28,9 @@ public class DevelopmentWorkflow {
     private LocalDateTime updatedAt;
     private String createdBy;
 
+    // 工作空间路径（仓库克隆目录）
+    private String workspacePath;
+
     private Specification specification;
     private TechnicalDesign technicalDesign;
     private TaskList taskList;
@@ -271,5 +274,13 @@ public class DevelopmentWorkflow {
 
     public String getCurrentStage() {
         return currentStage;
+    }
+
+    public String getWorkspacePath() {
+        return workspacePath;
+    }
+
+    public void setWorkspacePath(String workspacePath) {
+        this.workspacePath = workspacePath;
     }
 }

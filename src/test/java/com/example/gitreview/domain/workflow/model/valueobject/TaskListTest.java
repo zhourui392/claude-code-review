@@ -141,12 +141,11 @@ class TaskListTest {
     }
 
     private Task createPendingTask(String id, List<String> dependencies) {
-        return new Task(id, "任务" + id, "描述", TaskStatus.PENDING,
-                dependencies, "File.java", null, null);
+        return new Task(id, "任务" + id);
     }
 
     private Task createCompletedTask(String id, List<String> dependencies) {
-        return new Task(id, "任务" + id, "描述", TaskStatus.COMPLETED,
-                dependencies, "File.java", "code", LocalDateTime.now());
+        Task task = new Task(id, "任务" + id);
+        return task.complete("code");
     }
 }

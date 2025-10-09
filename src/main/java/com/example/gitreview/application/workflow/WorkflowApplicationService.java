@@ -1,6 +1,8 @@
 package com.example.gitreview.application.workflow;
 
 import com.example.gitreview.application.workflow.dto.*;
+import com.example.gitreview.application.repository.GitRepositoryApplicationService;
+import com.example.gitreview.domain.shared.model.aggregate.Repository;
 import com.example.gitreview.domain.workflow.exception.WorkflowNotFoundException;
 import com.example.gitreview.domain.workflow.model.WorkflowStatus;
 import com.example.gitreview.domain.workflow.model.aggregate.DevelopmentWorkflow;
@@ -14,6 +16,7 @@ import com.example.gitreview.domain.workflow.service.WorkflowDomainService;
 import com.example.gitreview.infrastructure.claude.ClaudeCodePort;
 import com.example.gitreview.infrastructure.claude.ClaudeCodeResult;
 import com.example.gitreview.infrastructure.claude.ClaudeQueryPort;
+import com.example.gitreview.infrastructure.analysis.RepositoryAnalyzer;
 import com.example.gitreview.infrastructure.compilation.CodeCompilationService;
 import com.example.gitreview.infrastructure.compilation.CompilationResult;
 import com.example.gitreview.infrastructure.git.GitOperationPort;
@@ -74,6 +77,12 @@ public class WorkflowApplicationService {
     @Autowired
     private TempWorkspaceManager tempWorkspaceManager;
 
+    @Autowired
+    private RepositoryAnalyzer repositoryAnalyzer;
+
+    @Autowired
+    private GitRepositoryApplicationService gitRepositoryApplicationService;
+
     @Value("${workflow.prompts.file:workflow-prompts.properties}")
     private String promptsFile;
 
@@ -118,6 +127,49 @@ public class WorkflowApplicationService {
     }
 
     /**
+     * 初始化工作空间（克隆仓库）
+     * 在生成规格文档前调用，确保后续所有操作都在同一工作空间进行
+     *
+     * @param workflowId 工作流ID
+     * @return 工作空间目录
+     */
+    private File initializeWorkspace(Long workflowId) throws Exception {
+        DevelopmentWorkflow workflow = loadWorkflow(workflowId);
+
+        // 如果已有工作空间，直接返回
+        if (workflow.getWorkspacePath() != null) {
+            File existingWorkspace = new File(workflow.getWorkspacePath());
+            if (existingWorkspace.exists()) {
+                logger.info("工作空间已存在，复用: {}", workflow.getWorkspacePath());
+                return existingWorkspace;
+            }
+        }
+
+        // 创建新工作空间
+        File workspaceDir = tempWorkspaceManager.createWorkspace("workflow-" + workflowId);
+        logger.info("创建工作空间: {}", workspaceDir.getAbsolutePath());
+
+        // 从仓库服务获取仓库信息
+        Repository repository = gitRepositoryApplicationService.getRepositoryEntity(workflow.getRepositoryId());
+
+        // 克隆仓库
+        logger.info("克隆仓库: {} 到 {}", repository.getGitUrl().getUrl(), workspaceDir.getAbsolutePath());
+        gitOperationPort.cloneRepository(
+                repository.getGitUrl().getUrl(),
+                workspaceDir.getAbsolutePath(),
+                repository.getCredential().getUsername(),
+                repository.getCredential().getPassword()
+        );
+
+        // 保存工作空间路径到工作流
+        workflow.setWorkspacePath(workspaceDir.getAbsolutePath());
+        workflowRepository.save(workflow);
+
+        logger.info("工作空间初始化成功: {}", workspaceDir.getAbsolutePath());
+        return workspaceDir;
+    }
+
+    /**
      * 生成规格文档（异步）
      *
      * @param workflowId 工作流ID
@@ -133,7 +185,20 @@ public class WorkflowApplicationService {
             workflow.startSpecGeneration();
             workflowRepository.save(workflow);
 
-            String prompt = buildSpecPrompt(request.getPrdContent(), request.getDocumentPaths());
+            // 1. 初始化工作空间（克隆仓库）
+            File repoDir = initializeWorkspace(workflowId);
+
+            // 2. 分析仓库上下文
+            logger.info("分析仓库上下文，工作流ID: {}", workflowId);
+            RepositoryAnalyzer.RepositoryContext repoContext = repositoryAnalyzer.analyzeRepository(repoDir);
+            logger.info("仓库分析完成: {}", repoContext.getSummary());
+
+            // 3. 构建包含仓库上下文的提示词
+            String prompt = buildSpecPromptWithContext(
+                    request.getPrdContent(),
+                    request.getDocumentPaths(),
+                    repoContext
+            );
 
             logger.debug("调用Claude生成规格文档");
             String generatedSpec = claudeQueryPort.query(prompt).getOutput();
@@ -156,6 +221,7 @@ public class WorkflowApplicationService {
             logger.error("规格文档生成失败，工作流ID: {}", workflowId, e);
             markWorkflowAsFailed(workflowId, "规格文档生成失败: " + e.getMessage());
         }
+        // 注意：不再清理工作空间，保留给后续使用
     }
 
     /**
@@ -732,8 +798,39 @@ public class WorkflowApplicationService {
                         "6. 包含功能清单和验收标准\n\n" +
                         "PRD内容：\n%s\n\n" +
                         "参考文档：\n%s\n\n" +
-                        "请生成完整的spec.md内容，使用中文。",
+                        "IMPORTANT: 请直接输出完整的spec.md文档内容，从 '# 规格文档' 标题开始，不要包含任何额外的说明、总结或元信息。只输出纯Markdown格式的规格文档。使用中文。",
                 prdContent, documentsContent
+        );
+    }
+
+    /**
+     * 构建包含仓库上下文的规格文档提示词
+     */
+    private String buildSpecPromptWithContext(String prdContent, List<String> documentPaths,
+                                              RepositoryAnalyzer.RepositoryContext repoContext) {
+        String documentsContent = documentPaths != null && !documentPaths.isEmpty()
+                ? String.join("\n", documentPaths)
+                : "无";
+
+        return String.format(
+                "你是一个资深软件工程师。\n" +
+                        "根据以下PRD、参考文档和代码仓库上下文，生成一份详细的规格文档（spec.md）。\n\n" +
+                        "要求：\n" +
+                        "1. 明确需求目标和边界\n" +
+                        "2. 定义核心功能模块\n" +
+                        "3. 列出关键业务规则\n" +
+                        "4. 说明外部依赖和接口\n" +
+                        "5. 使用Markdown格式，结构清晰\n" +
+                        "6. 包含功能清单和验收标准\n" +
+                        "7. **结合现有代码仓库的架构模式和代码风格**\n" +
+                        "8. **参考现有代码的命名规范、注释风格和实体设计**\n" +
+                        "9. **新功能的设计应与现有代码保持一致**\n\n" +
+                        "PRD内容：\n%s\n\n" +
+                        "参考文档：\n%s\n\n" +
+                        "%s\n\n" +
+                        "IMPORTANT: 请直接输出完整的spec.md文档内容，从 '# 规格文档' 标题开始，不要包含任何额外的说明、总结或元信息。只输出纯Markdown格式的规格文档。使用中文。\n" +
+                        "规格文档中的数据模型、API设计、命名规范必须参考上述仓库上下文中的现有代码风格。",
+                prdContent, documentsContent, repoContext.toMarkdown()
         );
     }
 

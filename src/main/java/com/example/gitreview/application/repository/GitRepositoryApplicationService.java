@@ -200,6 +200,19 @@ public class GitRepositoryApplicationService {
     }
 
     /**
+     * 获取仓库实体（内部使用）
+     * @param id 仓库ID
+     * @return Repository实体
+     */
+    @Transactional(readOnly = true)
+    public Repository getRepositoryEntity(Long id) {
+        logger.debug("Fetching repository entity: {}", id);
+
+        return repositoryRepository.findById(id)
+                .orElseThrow(() -> new ResourceNotFoundException("Repository not found: " + id));
+    }
+
+    /**
      * 获取所有仓库列表
      * @return 仓库列表
      */

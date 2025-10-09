@@ -131,8 +131,7 @@ public class DevelopmentWorkflowTest {
         assertEquals(WorkflowStatus.TASK_LIST_GENERATING, workflow.getStatus());
 
         List<Task> tasks = new ArrayList<>();
-        tasks.add(new Task("P0-1", "任务1", "描述", TaskStatus.PENDING,
-                List.of(), "file1.java", null, null));
+        tasks.add(new Task("P0-1", "任务1"));
 
         TaskList taskList = new TaskList("任务列表内容", tasks, LocalDateTime.now());
 
@@ -219,8 +218,7 @@ public class DevelopmentWorkflowTest {
         workflow.startTaskListGeneration();
 
         List<Task> tasks = new ArrayList<>();
-        tasks.add(new Task("P0-1", "任务1", "描述", TaskStatus.PENDING,
-                List.of(), "file1.java", null, null));
+        tasks.add(new Task("P0-1", "任务1"));
 
         TaskList taskList = new TaskList("任务列表", tasks, LocalDateTime.now());
         workflow.completeTaskListGeneration(taskList);
